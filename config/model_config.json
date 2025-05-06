@@ -1,0 +1,9 @@
+{
+  "model_name": "bert-base-uncased",
+  "version": "1.0",
+  "parameters": {
+    "max_length": 512,
+    "num_labels": 2,
+    "dropout_rate": 0.1
+  }
+}
