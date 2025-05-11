@@ -7,16 +7,15 @@ from transformers.models.clip.modeling_clip import CLIPVisionModel
 
 
 class PoolerProjector(nn.Module):
-    def __init__(self, config, vision_cfg):
+    def __init__(self, d_v, d_l, vision_cfg):
         super().__init__()
-        self._config = config
         self.hw = vision_cfg.image_size // vision_cfg.patch_size
 
-        self.conv_pool = nn.Conv2d(config.mm_hidden_size, config.hidden_size, kernel_size=2, stride=2)
+        self.conv_pool = nn.Conv2d(d_v, d_l, kernel_size=2, stride=2)
 
         self.proj = nn.Sequential(
             nn.GELU(),
-            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.Linear(d_l, d_l),
         )
 
     def forward(self, x, *args, **kwargs):
@@ -57,34 +56,46 @@ class SimpleResBlock(nn.Module):
         return x + self.proj(x)
 
 
-def build_vision_projector(config, projector_type, vision_cfg):
-    projector_type = getattr(config, "projector_type", "linear")
-
+def build_vision_projector(d_v, d_l, projector_type="linear", vision_cfg=None):
+    """
+    Build a vision projector to project vision features to language space.
+    
+    Args:
+        d_v: Dimension of vision features (vision encoder hidden size)
+        d_l: Dimension of language features (language model hidden size)
+        projector_type: Type of projector to use
+        vision_cfg: Configuration for vision model (needed for pooler projector)
+        
+    Returns:
+        A module that projects vision features to language space
+    """
     if projector_type == "linear":
-        return nn.Linear(config.mm_hidden_size, config.hidden_size)
+        return nn.Linear(d_v, d_l)
 
     if projector_type == "pooler":
-        return PoolerProjector(config, vision_cfg)
+        if vision_cfg is None:
+            raise ValueError("vision_cfg is required for pooler projector")
+        return PoolerProjector(d_v, d_l, vision_cfg)
 
     mlp_gelu_match = re.match(r"^mlp(\d+)x_gelu$", projector_type)
     if mlp_gelu_match:
         mlp_depth = int(mlp_gelu_match.group(1))
-        modules = [nn.Linear(config.mm_hidden_size, config.hidden_size)]
+        modules = [nn.Linear(d_v, d_l)]
         for _ in range(1, mlp_depth):
             modules.append(nn.GELU())
-            modules.append(nn.Linear(config.hidden_size, config.hidden_size))
+            modules.append(nn.Linear(d_l, d_l))
         return nn.Sequential(*modules)
 
     mlp_gelu_resnet_match = re.match(r"^mlp(\d+)x_res(\d+)x_gelu$", projector_type)
     if mlp_gelu_resnet_match:
         mlp_depth = int(mlp_gelu_resnet_match.group(1))
         res_depth = int(mlp_gelu_resnet_match.group(2))
-        modules = [nn.Linear(config.mm_hidden_size, config.hidden_size)]
+        modules = [nn.Linear(d_v, d_l)]
         for _ in range(1, mlp_depth):
             modules.append(nn.GELU())
-            modules.append(nn.Linear(config.hidden_size, config.hidden_size))
+            modules.append(nn.Linear(d_l, d_l))
         for _ in range(res_depth):
-            modules.append(SimpleResBlock(config.hidden_size))
+            modules.append(SimpleResBlock(d_l))
         return nn.Sequential(*modules)
 
     if projector_type == "identity":
