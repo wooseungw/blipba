@@ -31,20 +31,20 @@ pip install https://github.com/daswer123/deepspeed-windows/releases/download/13.
 ```
 pip install -r requirements.txt
 ```
-#### Install Surround360 (May not requirements work)
+#### Install Blipba (May not requirements work)
 ```
-pip install transformers==4.51.3
+pip install mamba-ssm[causal-conv1d]
 pip install deepspeed
-conda install -y -c conda-forge mpich
 conda install -y cuda-cudart cuda-version=12
-pip install mpi4py==4.0.3
 conda install -y -c conda-forge cuda-nvcc=12.1
 conda install -y -c conda-forge cudatoolkit-dev=12.1
 pip install flash-attn --no-build-isolation
 pip install git+https://github.com/jmhessel/pycocoevalcap.git@f76c47defb8eb646545147f913b7023bbfcfcabe
 pip install openai-clip==1.0.1
 pip install accelerate==1.6.0
+pip install transformers==4.51.3
 pip install evaluate==0.4.3
 pip install opencv-python==4.11.0.86
 pip install pandas==2.2.3
+
 ```
