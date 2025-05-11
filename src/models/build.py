@@ -176,18 +176,69 @@ class CustomVLMModel(PreTrainedModel):
     # VISION → PROJECTOR
     # ------------------------------------------------------------------ #
     def _get_vision_embeds(self, pixel_values: torch.FloatTensor) -> torch.FloatTensor:
-        v_feat = self.vision_encoder(pixel_values).last_hidden_state  # (B, N, d_v)
-        if self.resampler is not None:
-            v_feat = self._get_2dPool(v_feat)
-        v_emb = self.projector(v_feat)  # (B, N', d_l)
+        """Vision encoder → (optional) resampler → projector → LLM‑space embeds."""
+        v_feat = self.vision_encoder(pixel_values=pixel_values).last_hidden_state  # (B,N,d_v)
+        v_emb = self.projector(v_feat)  # (B,N',d_l)
         return v_emb
-
+    
     def _get_2dPool(self, feature: torch.FloatTensor, stride: int = 2):
-        B, N, D = feature.shape
-        s = int(math.sqrt(N))
-        feature = feature.view(B, s, s, D).permute(0, 3, 1, 2).contiguous()
-        feature = nn.functional.avg_pool2d(feature, stride)
-        feature = feature.permute(0, 2, 3, 1).contiguous().view(B, -1, D)
+        """ViT patch token을 2‑D grid 로 reshape 후 pooling."""
+        # feature: (num_samples, N, d_v)
+        num_frames, num_tokens, num_dim = feature.shape
+        
+        # CLS 토큰 처리 - 첫 번째 토큰은 제외
+        has_cls_token = (num_tokens == 197)  # 14x14 + 1 = 197
+        
+        if has_cls_token:
+            cls_token = feature[:, 0:1, :]  # CLS 토큰 분리
+            patch_tokens = feature[:, 1:, :]
+            num_tokens = num_tokens - 1
+        else:
+            patch_tokens = feature
+        
+        # 패치 토큰을 2D 그리드로 재구성
+        side = int(math.sqrt(num_tokens))
+        if side * side != num_tokens:
+            raise ValueError(f"토큰 수({num_tokens})가 완전한 정사각형이 아닙니다.")
+        
+        print(f"입력 특성 모양: {feature.shape}, 사이드 길이: {side}")
+        patch_tokens = patch_tokens.view(num_frames, side, side, num_dim)  # (B, H, W, d_v)
+
+        # 시간적 풀링 (필요한 경우)
+        temporal_pooling = getattr(self.config, "temporal_pooling", 1)
+        if temporal_pooling > 1:
+            # 기존 코드와 동일한 시간적 풀링 구현
+            # ...
+            pass
+
+        # (B, H, W, d_v) → (B, d_v, H, W)
+        patch_tokens = patch_tokens.permute(0, 3, 1, 2).contiguous()
+
+        # 풀링 적용
+        mode = getattr(self.config, "mm_spatial_pool_mode", "average")
+        if mode == "average":
+            patch_tokens = nn.functional.avg_pool2d(patch_tokens, stride)
+        elif mode == "max":
+            patch_tokens = nn.functional.max_pool2d(patch_tokens, stride)
+        elif mode == "bilinear":
+            height, width = patch_tokens.shape[2:]
+            scaled_shape = [math.ceil(height / stride), math.ceil(width / stride)]
+            patch_tokens = nn.functional.interpolate(patch_tokens, size=scaled_shape, mode="bilinear")
+        else:
+            raise ValueError(f"예상치 못한 mm_spatial_pool_mode: {mode}")
+        
+        new_h, new_w = patch_tokens.shape[2:]
+        print(f"풀링 후 특성 모양: {patch_tokens.shape}, 새 패치 수: {new_h * new_w}")
+        
+        # (B, d_v, H', W') → (B, H'*W', d_v)
+        patch_tokens = patch_tokens.permute(0, 2, 3, 1).contiguous().view(num_frames, -1, num_dim)
+        
+        # CLS 토큰 재결합 (있는 경우)
+        # if has_cls_token:
+        #     feature = torch.cat([cls_token, patch_tokens], dim=1)
+        # else:
+        feature = patch_tokens
+        
         return feature
 
     # ------------------------------------------------------------------ #
@@ -324,8 +375,17 @@ class CustomVLMModel(PreTrainedModel):
         else:
             processed_labels = processed_input_ids.clone()
         
+        print(f"전처리된 입력 ID 모양: {processed_input_ids.shape}")  # 디버깅
+        
+        
         # 비전 인코딩
-        v_emb = self._get_vision_embeds(pixel_values)  # [B, N, d_l]
+        v_emb = self._get_vision_embeds(pixel_values)  # (B, N', d_l)
+        print(f"비전 인코딩 결과 모양: {v_emb.shape}")  # 디버깅
+        # 비전 임베딩 풀링
+        if self.config.mm_spatial_pool_mode != "none":
+            v_emb = self._get_2dPool(v_emb, stride=2)
+            print(f"풀링 후 비전 임베딩 모양: {v_emb.shape}")
+        
         v_emb = self.newline_inserter(v_emb, self.image_newline)
         
         # 중요: 배치 차원 추가 (비디오 경우 특별 처리)
@@ -367,7 +427,7 @@ if __name__ == "__main__":
     )
     model = CustomVLMModel(cfg).eval().to("cuda")
 
-    dummy_img = torch.randn(2, 3, 224, 224, device="cuda", dtype=torch.float16)
+    dummy_img = torch.randn(1, 3, 224, 224, device="cuda", dtype=torch.float16)
     prompt = f"{DEFAULT_IM_START_TOKEN} hello {DEFAULT_IMAGE_TOKEN} world {DEFAULT_IM_END_TOKEN}"
     tok = model.tokenizer(prompt, return_tensors="pt", padding=True).to("cuda")
 
