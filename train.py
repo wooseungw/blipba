@@ -35,7 +35,7 @@ def load_config(config_path):
     print("Loaded config:", config)
     return config
 
-class QuIC360Dataset(Dataset):
+class NextQADataset(Dataset):
     def __init__(self, 
                  csv_file: str,
                  processor: Blip2Processor,
@@ -48,6 +48,7 @@ class QuIC360Dataset(Dataset):
                  transform: bool = False):
         super().__init__()
         
+        ### json으로 불러오기
         self.df = pd.read_csv(csv_file)
         self.processor = processor
         
@@ -56,8 +57,8 @@ class QuIC360Dataset(Dataset):
         self.do_crop = do_crop
         if self.do_crop:
             self.image_size = (int(image_size[0] * 2), int(image_size[1] * 4))
-            self.fov = fov
-            self.overlap_ratio = overlap_ratio
+            # self.fov = fov
+            # self.overlap_ratio = overlap_ratio
             print(f"Do Crop, Image size: {self.image_size}")
         else:
             self.image_size = tuple(image_size)
@@ -85,6 +86,7 @@ class QuIC360Dataset(Dataset):
                 padding="max_length",
                 truncation=True,
             )
+        ###
         # qtext = f"Question: {question} Answer:"
         # 질문과 정답을 전처리합니다.
         if self.do_crop:
@@ -109,7 +111,9 @@ class QuIC360Dataset(Dataset):
             "question": question,
             "answer": answer
         }
-
+    ###
+    def video_sapling(self, video_path: str, num_frames: int = 16) -> torch.Tensor:
+        return torch.stack(patches, dim=0).unsqueeze(0)
     def crop_equirectangular_tensor(self, img_tensor: torch.Tensor) -> torch.Tensor:
         B, C, H2, W4 = img_tensor.shape
         assert B == 1
@@ -219,6 +223,7 @@ def main():
         print("Loading BLIP-2 model")
         model = Blip2ForConditionalGeneration.from_pretrained(pretrain_name)
 
+    ###
     # LoRA 설정 및 적용
     if 'lora' in config:
         lora_cfg = LoraConfig(
