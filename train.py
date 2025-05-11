@@ -14,6 +14,7 @@ import wandb
 from pathlib import Path
 
 import yaml
+from peft import LoraConfig, get_peft_model
 import argparse
 from typing import Dict, List, Optional, Union, Any
 
@@ -217,6 +218,19 @@ def main():
     else:
         print("Loading BLIP-2 model")
         model = Blip2ForConditionalGeneration.from_pretrained(pretrain_name)
+
+    # LoRA 설정 및 적용
+    if 'lora' in config:
+        lora_cfg = LoraConfig(
+            task_type="SEQ2SEQ_LM",
+            inference_mode=False,
+            r=config['lora'].get('r', 8),
+            lora_alpha=config['lora'].get('alpha', 16),
+            lora_dropout=config['lora'].get('dropout', 0.1),
+            target_modules=config['lora'].get('target_modules', ["q_proj", "v_proj"])
+        )
+        model = get_peft_model(model, lora_cfg)
+        print("LoRA has been applied with config:", config['lora'])
     # Freeze vision encoder parameters
     # for param in model.vision_model.parameters():
     #     param.requires_grad = False

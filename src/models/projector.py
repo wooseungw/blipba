@@ -57,14 +57,14 @@ class SimpleResBlock(nn.Module):
         return x + self.proj(x)
 
 
-def build_vision_projector(config, delay_load=False, **kwargs):
-    projector_type = getattr(config, "mm_projector_type", "linear")
+def build_vision_projector(config, projector_type, vision_cfg):
+    projector_type = getattr(config, "projector_type", "linear")
 
     if projector_type == "linear":
         return nn.Linear(config.mm_hidden_size, config.hidden_size)
 
     if projector_type == "pooler":
-        return PoolerProjector(config, kwargs["vision_cfg"])
+        return PoolerProjector(config, vision_cfg)
 
     mlp_gelu_match = re.match(r"^mlp(\d+)x_gelu$", projector_type)
     if mlp_gelu_match:

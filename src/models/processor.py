@@ -54,7 +54,7 @@ Processor class for Custom BLIP-2.
 logger = logging.get_logger(__name__)
 
 
-class Blip2ProcessorKwargs(ProcessingKwargs, total=False):
+class CustomProcessorKwargs(ProcessingKwargs, total=False):
     _defaults = {
         "text_kwargs": {
             "add_special_tokens": True,
@@ -75,7 +75,7 @@ class Blip2ProcessorKwargs(ProcessingKwargs, total=False):
     }
 
 
-class Blip2Processor(ProcessorMixin):
+class CustomProcessor(ProcessorMixin):
     r"""
     Constructs a BLIP-2 processor which wraps a BLIP image processor and an OPT/T5 tokenizer into a single processor.
 
@@ -114,7 +114,7 @@ class Blip2Processor(ProcessorMixin):
         text: Optional[Union[str, List[str], TextInput, PreTokenizedInput]] = None,
         audio=None,
         videos=None,
-        **kwargs: Unpack[Blip2ProcessorKwargs],
+        **kwargs: Unpack[CustomProcessorKwargs],
     ) -> BatchEncoding:
         """
         This method uses [`BlipImageProcessor.__call__`] method to prepare image(s) for the model, and

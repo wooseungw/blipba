@@ -6,15 +6,12 @@ wandb:
 # 모델 설정
 model:
     name: "blip2"
-    pretrain_name: "Salesforce/blip2-opt-2.7b" # HuggingFace 형식으로 저장된 경로
-    save_dir: "saved_models/blip2_360"
-    max_new_tokens: 256 # 최대 생성 토큰 수
-
-# 데이터 설정
+    vision_cfg: "google/siglip-so400m-patch14-384"
+    llm_cfg: "Qwen/Qwen3-8B-Base"
+    projector_type: "mlp2x_gelu"
 data:
     dir: "data/quic360"
     train_file: "train.csv"
-    valid_file: "valid.csv"
     image_size: [ 224, 224 ]
     max_length: 256
     do_crop: false
