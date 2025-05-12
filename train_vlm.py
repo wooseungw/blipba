@@ -70,6 +70,9 @@ class MultimodalCollator:
         
         return batch
 
+def collator(features):
+    return MultimodalCollator()(features)
+
 # ---------------------------------------------------------------------------- #
 # 3. Argument Parser
 # ---------------------------------------------------------------------------- #
@@ -108,8 +111,8 @@ def main():
     
     lora_config = LoraConfig(
     task_type=TaskType.SEQUENCE_CLASSIFICATION,
-    r=8,  # rank
-    lora_alpha=32,
+    r=128,  # rank
+    lora_alpha=64,
     lora_dropout=0.1
     )
     
@@ -129,12 +132,12 @@ def main():
         eval_strategy=config.training.eval_strategy,
         per_device_eval_batch_size=config.training.per_device_eval_batch_size,
         eval_steps=config.training.eval_steps,
-        
-        
+        # Save
         save_strategy=config.training.save_strategy,
         save_steps=config.training.save_steps,
         save_total_limit=config.training.save_total_limit,
         greater_is_better=config.training.greater_is_better,
+        # Repoting
         report_to=config.training.report_to,
     )
     
