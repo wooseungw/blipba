@@ -35,24 +35,24 @@ class CustomVLMModel(PreTrainedModel):
         self,
         config: VisionLanguageConfig,
         *,
-        vision_dtype: torch.dtype = torch.float16,
-        llm_dtype: torch.dtype = torch.float16,
+        dtype: torch.dtype = torch.float16,
+        
     ) -> None:
         super().__init__(config)
 
         # 1) Vision encoder --------------------------------------------------
         self.vision_encoder = AutoModel.from_pretrained(
             config.vision_model_name,
-            torch_dtype=vision_dtype,
-        )
+            torch_dtype=dtype,
+        ).to(dtype)
         print(f"Vision encoder: {self.vision_encoder.__class__.__name__}")
         d_v = self.config.vision_config.hidden_size
 
         # 2) Language model --------------------------------------------------
         self.llm = AutoModelForCausalLM.from_pretrained(
             config.language_model_name,
-            torch_dtype=llm_dtype,
-        )
+            torch_dtype=dtype,
+        ).to(dtype)
         print(f"Language model: {self.llm.__class__.__name__}")
         d_l = self.config.language_config.hidden_size
 
@@ -62,7 +62,7 @@ class CustomVLMModel(PreTrainedModel):
             d_l=d_l,
             projector_type=config.projector_type,
             vision_cfg=self.config.vision_config,
-        ).to(llm_dtype)
+        ).to(dtype)
 
         # 4) Optional resampler ---------------------------------------------
         if getattr(config, "use_resampler", False):
@@ -72,7 +72,7 @@ class CustomVLMModel(PreTrainedModel):
             self.resampler = None
 
         # 5) NEWLINE token parameter ----------------------------------------
-        self.image_newline = nn.Parameter(torch.zeros(d_l, dtype=llm_dtype))
+        self.image_newline = nn.Parameter(torch.zeros(d_l, dtype=dtype))
         self.newline_inserter = NewlineTokenInserter(config)
 
         # 6) Tokenizer & special tokens -------------------------------------
