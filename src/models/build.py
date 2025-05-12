@@ -35,52 +35,54 @@ class CustomVLMModel(PreTrainedModel):
         self,
         config: VisionLanguageConfig,
         *,
-        dtype: torch.dtype = torch.float16,
+        vision_dtype: torch.dtype = torch.float16, 
+        llm_dtype: torch.dtype = torch.float16
         ) -> None:
         super().__init__(config)
         self.config = config
-        
+        self.vision_dtype = vision_dtype
+        self.llm_dtype    = llm_dtype
         # 1) Vision encoder --------------------------------------------------
         self.vision_encoder = AutoModel.from_pretrained(
             config.vision_model_name,
-            torch_dtype=dtype,
-        ).to(dtype)
-        print(f"Vision encoder: {self.vision_encoder.__class__.__name__}")
+            torch_dtype=vision_dtype,
+        ).to(vision_dtype)
         d_v = self.config.vision_config.hidden_size
-
-        # 2) Language model --------------------------------------------------
+        print(f"Vision encoder: {self.vision_encoder.__class__.__name__}")
+        
+        # 6) Language model -------------------------------------------------
         self.llm = AutoModelForCausalLM.from_pretrained(
             config.language_model_name,
-            torch_dtype=dtype,
-        ).to(dtype)
-        print(f"Language model: {self.llm.__class__.__name__}")
+            torch_dtype=llm_dtype,
+        ).to(llm_dtype)
         d_l = self.config.language_config.hidden_size
-        self.dtype = dtype
-        # 3) Projector -------------------------------------------------------
+        # 2) Projector -------------------------------------------------------
         self.projector = build_vision_projector(
             d_v=d_v,
             d_l=d_l,
             projector_type=config.projector_type,
             vision_cfg=self.config.vision_config,
-        ).to(dtype)
-
-        # 4) Optional resampler ---------------------------------------------
+        ).to(vision_dtype)
+        print("dytpe:", vision_dtype)
+        # 3) Optional resampler ---------------------------------------------
         if getattr(config, "use_resampler", False):
             from resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
             self.resampler = MambaCompressor(d_model=d_v, n_layer=1, fp32=False)
         else:
             self.resampler = None
 
-        # 5) NEWLINE token parameter ----------------------------------------
-        self.image_newline = nn.Parameter(torch.zeros(d_l, dtype=dtype))
+        # 4) NEWLINE token parameter ----------------------------------------
+        self.image_newline = nn.Parameter(torch.zeros(d_l, dtype=vision_dtype))
         self.newline_inserter = NewlineTokenInserter(config)
 
-        # 6) Tokenizer & special tokens -------------------------------------
+        # 5) Tokenizer & special tokens -------------------------------------
         self.tokenizer = AutoTokenizer.from_pretrained(config.language_model_name)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "right"
         self._register_special_tokens()
+        
+
 
         # 7) Optional freezing ----------------------------------------------
         if getattr(config, "freeze_vision", True):
@@ -224,7 +226,7 @@ class CustomVLMModel(PreTrainedModel):
             features = torch.squeeze(features, 0)
             print(f"feature 모양: {features.shape}")  # 디버깅
         # print(f"feature 모양: {features.shape}")  # 디버깅
-        return features.to(dtype=self.dtype)  # (B, H//stride * W//stride, d_l)
+        return features.to(self.llm_dtype)  # (B, H//stride * W//stride, d_l)
         
     # ------------------------------------------------------------------ #
     # IMAGE TOKEN REPLACEMENT (re‑implemented)
