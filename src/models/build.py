@@ -97,11 +97,6 @@ class CustomVLMModel(PreTrainedModel):
         """LLaVA 스타일의 특수 토큰 등록 및 커스텀 ID 지정"""
         # 1. 기존 토크나이저 크기 확인
         base_vocab_size = len(self.tokenizer)
-        print(f"기존 어휘 크기: {base_vocab_size}")
-        
-        # 2. 토큰 추가 전 현재 상태 출력
-        print(f"추가 전 특수 토큰 목록: {self.tokenizer.all_special_tokens}")
-        
         # 3. 추가할 특수 토큰 정의
         special_tokens = {"additional_special_tokens": [
             DEFAULT_IMAGE_TOKEN,
@@ -491,7 +486,7 @@ if __name__ == "__main__":
         f"{DEFAULT_IM_START_TOKEN} test {DEFAULT_IMAGE_TOKEN} example {DEFAULT_IM_END_TOKEN}"
     ]
     tok = model.tokenizer(prompts, return_tensors="pt", padding=True).to("cuda")
-    print("Input IDs shape:", tok.input_ids.shape)
+    
     with torch.no_grad():
         out = model(pixel_values=dummy_img, input_ids=tok.input_ids, attention_mask=tok.attention_mask, labels=tok.input_ids)
         print("Logits shape:", out.logits.shape)
