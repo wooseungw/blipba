@@ -132,7 +132,7 @@ class VLMDataset(Dataset):
             messages,
             tokenize=True,
             return_tensors="pt",
-            return_assistant_tokens_mask = True,
+            # return_assistant_tokens_mask = True,
             return_dict=True,
         )
         input_ids =  tokenized["input_ids"].squeeze(0)
