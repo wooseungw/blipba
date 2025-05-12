@@ -8,28 +8,45 @@ import numpy as np
 from decord import VideoReader, cpu
 from pathlib import Path
 import logging
+from PIL import Image
 
 from transformers import PreTrainedTokenizer
 from transformers import AutoProcessor
 DEFAULT_IMAGE_TOKEN = "<image>"
-def load_video(video_path, max_frames_num,fps=1,force_sample=False):
+def load_video(video_path, max_frames_num, fps=1, force_sample=False, img_processor=None):
     video_path = str(video_path)
     if max_frames_num == 0:
         return np.zeros((1, 336, 336, 3))
-    vr = VideoReader(video_path, ctx=cpu(0),num_threads=1)
+    vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
     total_frame_num = len(vr)
     video_time = total_frame_num / vr.get_avg_fps()
-    fps = round(vr.get_avg_fps()/fps)
+    fps = round(vr.get_avg_fps() / fps)
     frame_idx = [i for i in range(0, len(vr), fps)]
-    frame_time = [i/fps for i in frame_idx]
+    frame_time = [i / fps for i in frame_idx]
     if len(frame_idx) > max_frames_num or force_sample:
         sample_fps = max_frames_num
         uniform_sampled_frames = np.linspace(0, total_frame_num - 1, sample_fps, dtype=int)
         frame_idx = uniform_sampled_frames.tolist()
-        frame_time = [i/vr.get_avg_fps() for i in frame_idx]
+        frame_time = [i / vr.get_avg_fps() for i in frame_idx]
     frame_time = ",".join([f"{i:.2f}s" for i in frame_time])
     spare_frames = vr.get_batch(frame_idx).asnumpy()
-    return spare_frames,frame_time,video_time
+    # --- Resize frames if processor provided ---------------------------
+    if img_processor is not None:
+        # Determine target size
+        try:
+            size = img_processor.image_processor.size
+            target_h = size.get("height", size.get("shortest_edge", None))
+            target_w = size.get("width", size.get("longest_edge", None))
+        except Exception:
+            target_h, target_w = None, None
+        if target_h is not None and target_w is not None:
+            resized = []
+            for frm in spare_frames:
+                img = Image.fromarray(frm)
+                img = img.resize((target_w, target_h))
+                resized.append(np.array(img))
+            spare_frames = np.stack(resized, axis=0)
+    return spare_frames, frame_time, video_time
 
 class VLMDataset(Dataset):
     def __init__(
@@ -89,7 +106,8 @@ class VLMDataset(Dataset):
             if video_full.is_file():
                 valid_data.append(entry)
             else:
-                logging.warning(f"Missing video file, skipping sample: {video_full}")
+                pass
+                # logging.warning(f"Missing video file, skipping sample: {video_full}")
         self.data = valid_data
         self.data_path = data_path
         self.max_frames_num = max_frames_num
@@ -164,6 +182,7 @@ class VLMDataset(Dataset):
             self.max_frames_num,
             fps=self.fps,
             force_sample=self.force_sample,
+            img_processor=self.img_processor,
         )
         
 if __name__ == "__main__":
