@@ -177,9 +177,7 @@ def main():
         save_strategy=cfg.training.save_strategy,
         save_steps=cfg.training.save_steps,
         save_total_limit=cfg.training.save_total_limit,
-        load_best_model_at_end=cfg.training.load_best_model_at_end,
-        metric_for_best_model=cfg.training.metric_for_best_model,
-        greater_is_better=cfg.training.greater_is_better,
+        load_best_model_at_end=False,   # we only keep the last N checkpoints
 
         report_to=cfg.training.report_to,
         logging_steps=cfg.training.logging_steps,
