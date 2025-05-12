@@ -88,6 +88,8 @@ class CustomVLMModel(PreTrainedModel):
             self._freeze(self.llm)
 
         self.post_init()
+        # Let HF Trainer know this wrapper can toggle gradient checkpointing
+        self.supports_gradient_checkpointing = True
 
     # ------------------------------------------------------------------ #
     # SPECIAL‑TOKEN HANDLING
@@ -167,6 +169,28 @@ class CustomVLMModel(PreTrainedModel):
     def _freeze(module: nn.Module):
         for p in module.parameters():
             p.requires_grad = False
+
+    # ------------------------------------------------------------------ #
+    # GRADIENT CHECKPOINTING TOGGLE (delegate to LLM)
+    # ------------------------------------------------------------------ #
+    def gradient_checkpointing_enable(self, **kwargs):
+        """
+        Enable gradient checkpointing for the underlying language model.
+        HF Trainer expects this method to exist when gradient_checkpointing=True.
+        """
+        if hasattr(self.llm, "gradient_checkpointing_enable"):
+            self.llm.gradient_checkpointing_enable(**kwargs)
+        # Disable cache to save memory
+        if hasattr(self.llm.config, "use_cache"):
+            self.llm.config.use_cache = False
+
+    def gradient_checkpointing_disable(self):
+        """Disable gradient checkpointing."""
+        if hasattr(self.llm, "gradient_checkpointing_disable"):
+            self.llm.gradient_checkpointing_disable()
+        # Re‑enable cache if available
+        if hasattr(self.llm.config, "use_cache"):
+            self.llm.config.use_cache = True
 
     # ------------------------------------------------------------------ #
     # VISION → PROJECTOR
