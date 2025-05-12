@@ -9,7 +9,7 @@ from transformers import (
 )
 from copy import deepcopy
 from peft import LoraConfig, TaskType, get_peft_model
-
+from transformers import TrainerCallback
 import yaml
 from omegaconf import OmegaConf
 from types import SimpleNamespace
@@ -41,10 +41,12 @@ def create_input_with_template(instruction, tokenizer, image_placeholder=DEFAULT
 
     return inputs
 
-# ---------------------------------------------------------------------------- #
-# 1. Dataset for Images & Video Frames
-# ---------------------------------------------------------------------------- #
+class CopyProcessorCallback(TrainerCallback):
+    def __init__(self, vision_processor):
+        self.vision_processor = vision_processor
 
+    def on_save(self, args, state, control, **kwargs):
+        ckpt_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
 
 # ---------------------------------------------------------------------------- #
 # 2. Collator
@@ -196,10 +198,20 @@ def main():
         args=training_args,
         train_dataset=train_ds,
         data_collator=data_collator,
+        tokenizer=model.tokenizer
     )
-
+    trainer.add_callback(CopyProcessorCallback(vision_processor))
     trainer.train()
-
+    merged_model = model.merge_and_unload()   # FP16/full‑precision 가정
+    
+    # ② 저장 경로 지정 (예: outputs/merged_final)
+    save_dir = os.path.join(training_args.output_dir, "merged_final")
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # ③ 모델 + 토크나이저 + 프로세서 저장
+    merged_model.save_pretrained(save_dir, safe_serialization=True)     # safetensors
+    language_processor.save_pretrained(save_dir)                       # tokenizer_config.json …
+    vision_processor.save_pretrained(save_dir)      
 # ---------------------------------------------------------------------------- #
 if __name__ == "__main__":
     main()
