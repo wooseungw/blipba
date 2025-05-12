@@ -9,8 +9,7 @@ from pathlib import Path
 
 from transformers import PreTrainedTokenizer
 from transformers import AutoProcessor
-from constant import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
-
+DEFAULT_IMAGE_TOKEN = "<image>"
 def load_video(video_path, max_frames_num,fps=1,force_sample=False):
     video_path = str(video_path)
     if max_frames_num == 0:
@@ -129,6 +128,14 @@ class VLMDataset(Dataset):
         
 if __name__ == "__main__":
     # Example usage
-    dataset = VLMDataset(data_path="DATAS/train/sample",data_files="sample/sample.json", img_processor=None, tokenizer=None)
+    from transformers import AutoProcessor
+    from transformers import AutoTokenizer
+    
+    # Load the image processor and tokenizer
+    processor = AutoProcessor.from_pretrained("facebook/dino-vitb16")
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
+    dataset = VLMDataset(data_path="DATAS/train/",data_files="sample/sample.json", img_processor=processor, tokenizer=tokenizer)
+    
+    
     print(len(dataset))  # Print the number of entries in the dataset
-    print(dataset.data[0] ) # Access the first entry
+    print(dataset[0] ) # Access the first entry
