@@ -39,7 +39,8 @@ class CustomVLMModel(PreTrainedModel):
         
     ) -> None:
         super().__init__(config)
-
+        self.config = config
+        self.dtype = dtype
         # 1) Vision encoder --------------------------------------------------
         self.vision_encoder = AutoModel.from_pretrained(
             config.vision_model_name,
@@ -67,7 +68,7 @@ class CustomVLMModel(PreTrainedModel):
         # 4) Optional resampler ---------------------------------------------
         if getattr(config, "use_resampler", False):
             from resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
-            self.resampler = MambaCompressor(d_model=d_v, n_layer=1, fp32=False).to(dtype)
+            self.resampler = MambaCompressor(d_model=d_v, n_layer=1, fp32=False)
         else:
             self.resampler = None
 
@@ -151,12 +152,12 @@ class CustomVLMModel(PreTrainedModel):
         # 7. 모델 임베딩 크기 조정
         self.llm.resize_token_embeddings(len(self.tokenizer))
         
-        # # 8. 결과 확인
-        # print(f"추가 후 토큰 수: {len(self.tokenizer)}")
-        # print(f"추가 후 특수 토큰 목록: {self.tokenizer.all_special_tokens}")
-        # for token in special_tokens["additional_special_tokens"]:
-        #     curr_id = self.tokenizer.convert_tokens_to_ids(token)
-        #     print(f"토큰: {token}, ID: {curr_id}")
+        # 8. 결과 확인
+        print(f"추가 후 토큰 수: {len(self.tokenizer)}")
+        print(f"추가 후 특수 토큰 목록: {self.tokenizer.all_special_tokens}")
+        for token in special_tokens["additional_special_tokens"]:
+            curr_id = self.tokenizer.convert_tokens_to_ids(token)
+            print(f"토큰: {token}, ID: {curr_id}")
         
         # # 9. 내부 처리에서의 특수 인덱스 사용 설명
         # print("\n참고: 토크나이저에서는 음수 ID를 직접 사용할 수 없습니다.")
@@ -224,7 +225,7 @@ class CustomVLMModel(PreTrainedModel):
             features = torch.squeeze(features, 0)
             print(f"feature 모양: {features.shape}")  # 디버깅
         # print(f"feature 모양: {features.shape}")  # 디버깅
-        return features  # (B, H//stride * W//stride, d_l)
+        return features.to(dtype=self.dtype)  # (B, H//stride * W//stride, d_l)
         
     # ------------------------------------------------------------------ #
     # IMAGE TOKEN REPLACEMENT (re‑implemented)
