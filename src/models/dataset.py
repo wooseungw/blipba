@@ -85,7 +85,7 @@ class VLMDataset(Dataset):
         conversations = self.data[index]["conversations"]
 
         # 1) system message with video meta‑data
-        system_instruction = (
+        system_instruction = ("You are a helpful assistant."
             f"Video length: {video_time:.2f}s. "
             f"Selected frame timestamps: {frame_time}."
         )
@@ -99,16 +99,18 @@ class VLMDataset(Dataset):
         # Tokenize with HF chat template
         if self.tokenizer is None:
             raise ValueError("`tokenizer` must be provided.")
+        for i in messages:
+            print(i)
         tokenized = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             return_tensors="pt",
-            add_generation_prompt=False,
+            return_assistant_tokens_mask = True,
+            return_dict=True,
         )
-
-        input_ids = tokenized["input_ids"][0]
-        attention_mask = tokenized["attention_mask"][0]
-
+        input_ids =  tokenized["input_ids"].squeeze(0)
+        attention_mask = tokenized["attention_mask"].squeeze(0)
+        
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
@@ -138,4 +140,5 @@ if __name__ == "__main__":
     
     
     print(len(dataset))  # Print the number of entries in the dataset
-    print(dataset[0] ) # Access the first entry
+    sample = dataset[0]
+    print(sample.keys() ) # Access the first entry
