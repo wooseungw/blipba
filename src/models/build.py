@@ -496,5 +496,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         out = model.generate(pixel_values=dummy_img, input_ids=tok.input_ids,max_new_tokens =50 ,attention_mask=tok.attention_mask, labels=tok.input_ids)
         print("Generated IDs:", out)
+        out = model.tokenizer.batch_decode(out, skip_special_tokens=True)
+        print("Generated text:", out)
 
     
