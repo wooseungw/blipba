@@ -1,0 +1,134 @@
+import torch
+import json
+import os
+from torch.utils.data import Dataset
+from typing import Dict
+import numpy as np
+from decord import VideoReader, cpu
+from pathlib import Path
+
+from transformers import PreTrainedTokenizer
+from transformers import AutoProcessor
+from constant import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
+
+def load_video(video_path, max_frames_num,fps=1,force_sample=False):
+    video_path = str(video_path)
+    if max_frames_num == 0:
+        return np.zeros((1, 336, 336, 3))
+    vr = VideoReader(video_path, ctx=cpu(0),num_threads=1)
+    total_frame_num = len(vr)
+    video_time = total_frame_num / vr.get_avg_fps()
+    fps = round(vr.get_avg_fps()/fps)
+    frame_idx = [i for i in range(0, len(vr), fps)]
+    frame_time = [i/fps for i in frame_idx]
+    if len(frame_idx) > max_frames_num or force_sample:
+        sample_fps = max_frames_num
+        uniform_sampled_frames = np.linspace(0, total_frame_num - 1, sample_fps, dtype=int)
+        frame_idx = uniform_sampled_frames.tolist()
+        frame_time = [i/vr.get_avg_fps() for i in frame_idx]
+    frame_time = ",".join([f"{i:.2f}s" for i in frame_time])
+    spare_frames = vr.get_batch(frame_idx).asnumpy()
+    return spare_frames,frame_time,video_time
+
+class VLMDataset(Dataset):
+    def __init__(
+        self, 
+        data_path: str = "DATAS/train/", 
+        data_files: str = "NextQA/0_30_s_nextqa_mc_qa.json",
+        image_placeholder: str = DEFAULT_IMAGE_TOKEN,
+        max_frames_num: int = 64,
+        fps: int = 1,
+        img_processor: AutoProcessor = None,
+        tokenizer: PreTrainedTokenizer = None,
+        force_sample: bool = False,
+        ):
+        """
+        VLM Dataset for training and evaluation.
+
+        Args:
+            data_path (str): Path to the dataset file.
+            tokenizer: Tokenizer for encoding text.
+            image_placeholder (str): Placeholder for images in the text.
+            force_sample (bool): Whether to force uniform frame sampling.
+        """
+        with open(Path(data_path) / data_files, 'r') as f:
+            self.data = json.load(f)
+        self.data_path = data_path
+        self.max_frames_num = max_frames_num
+        self.fps = fps
+        self.img_processor = img_processor
+        self.tokenizer = tokenizer
+        self.image_placeholder = image_placeholder
+        self.force_sample = force_sample
+        
+    def __len__(self): return len(self.data)
+    
+    def __getitem__(self, index) -> Dict[str, torch.Tensor | Dict]:
+        """
+        Returns a dictionary containing:
+            input_ids:       (seq_len,)          – token ids for the LLM
+            attention_mask:  (seq_len,)          – attention mask for the LLM
+            pixel_values:    (num_frames, C, H, W) – processed video frames for the vision encoder
+            video_path:      str                 – path to the raw video (optional downstream use)
+        """
+        # ---------- Video ----------
+        video_path = Path(self.data_path) / self.data[index]["video"]
+        spare_frames, frame_time, video_time = self.get_video_samples(video_path)
+
+        # Process frames with the vision/image processor
+        if self.img_processor is None:
+            raise ValueError("`img_processor` must be provided.")
+        pixel_values = self.img_processor(
+            images=list(spare_frames), return_tensors="pt"
+        )["pixel_values"]  # shape: (num_frames, C, H, W)
+
+        # ---------- Text ----------
+        conversations = self.data[index]["conversations"]
+
+        # 1) system message with video meta‑data
+        system_instruction = (
+            f"Video length: {video_time:.2f}s. "
+            f"Selected frame timestamps: {frame_time}."
+        )
+        messages = [{"role": "system", "content": system_instruction}]
+
+        # 2) user ↔ assistant turns
+        for convo in conversations:
+            role = "user" if convo["from"] == "human" else "assistant"
+            messages.append({"role": role, "content": convo["value"]})
+
+        # Tokenize with HF chat template
+        if self.tokenizer is None:
+            raise ValueError("`tokenizer` must be provided.")
+        tokenized = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            return_tensors="pt",
+            add_generation_prompt=False,
+        )
+
+        input_ids = tokenized["input_ids"][0]
+        attention_mask = tokenized["attention_mask"][0]
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+            "video_path": str(video_path),
+        }
+    """
+    'conversations': [{'from': 'human', 'value': '<image>\nWhy is the blue sweater guy looking at the shirtless men?\nOptions:\nA. sharing with his friends.\nB. found the man funny.\nC. poor vision.\nD. keep hands warm.\nE. training.\nPlease provide your answer by stating the letter followed by the full option.'}, {'from': 'gpt', 'value': 'E. training.'}]
+    """
+    def get_video_samples(self, video_path):
+        return load_video(
+            video_path,
+            self.max_frames_num,
+            fps=self.fps,
+            force_sample=self.force_sample,
+        )
+        
+if __name__ == "__main__":
+    # Example usage
+    dataset = VLMDataset(data_path="DATAS/train/sample",data_files="sample/sample.json", img_processor=None, tokenizer=None)
+    print(len(dataset))  # Print the number of entries in the dataset
+    print(dataset.data[0] ) # Access the first entry

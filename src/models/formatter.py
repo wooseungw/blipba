@@ -9,10 +9,10 @@ special_tokens_dict = {
 }
 tokenizer.add_special_tokens(special_tokens_dict)
 
-def create_input_with_template(instruction, image_placeholder="<image>"):
+def create_input_with_template(instruction, tokenizer):
     """
     주어진 instruction과 템플릿을 결합한 후 토큰화된 결과를 반환하는 함수.
-
+    기대되는 입력은 [{'from': 'human','value': '<image>\nWh...},{}]
     Args:
     - instruction (str): 사용자가 입력한 지시문.
     - image_placeholder (str): <image>로 대체될 이미지 토큰. 기본값은 "<image>".
@@ -21,8 +21,8 @@ def create_input_with_template(instruction, image_placeholder="<image>"):
     - dict: 토크나이저에 의해 인코딩된 입력.
     """
     # 템플릿을 정의 (여기서는 단순 예시)
-    template = f"Here is an image prompt: {image_placeholder} Now answer the following question: {instruction}"
-
+    
+    
     # 템플릿과 instruction을 결합하여 토큰화
     inputs = tokenizer(template, return_tensors="pt")
 
