@@ -49,7 +49,7 @@ class CustomVLMModel(PreTrainedModel):
             torch_dtype=vision_dtype,
         ).to(vision_dtype)
         d_v = self.config.vision_config.hidden_size
-        print(f"Vision encoder: {self.vision_encoder.__class__.__name__}")
+        
         
         # 6) Language model -------------------------------------------------
         self.llm = AutoModelForCausalLM.from_pretrained(
@@ -67,10 +67,10 @@ class CustomVLMModel(PreTrainedModel):
         print("dytpe:", vision_dtype)
         # 3) Optional resampler ---------------------------------------------
         if getattr(config, "use_resampler", False):
-            self.resampler = MambaCompressor(d_model=d_v, n_layer=1, fp32=False)
+            self.resampler = MambaCompressor(d_model=d_l, n_layer=1, fp32=False)
         else:
             self.resampler = None
-
+        print(f"Vision encoder: {self.vision_encoder.__class__.__name__}","LLM: ", self.llm.__class__.__name__)
         # 4) NEWLINE token parameter ----------------------------------------
         self.image_newline = nn.Parameter(torch.zeros(d_l, dtype=vision_dtype))
         self.newline_inserter = NewlineTokenInserter(config)
