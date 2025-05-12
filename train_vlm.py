@@ -1,10 +1,6 @@
 import os
-import math
 import argparse
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
 from transformers import (
     Trainer,
     TrainingArguments,
@@ -14,6 +10,9 @@ from transformers import (
 from copy import deepcopy
 from peft import LoraConfig, TaskType, get_peft_model
 
+import yaml
+
+from src.dataset import VLMDataset
 from src.models.config import VisionLanguageConfig
 from src.models.build import CustomVLMModel
 from src.constant import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
@@ -77,76 +76,95 @@ def collator(features):
 # 3. Argument Parser
 # ---------------------------------------------------------------------------- #
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train BLIP-2 model with parameters from a YAML file")
-    parser.add_argument("--config", type=str, default="config/train.yaml", help="Path to the config file")
+    parser = argparse.ArgumentParser(description="Train VLM with parameters from YAML")
+    parser.add_argument("--config", type=str, default="config/train.yaml", help="Path to the YAML config")
     return parser.parse_args()
 
+def load_config(config_path):
+    with open(config_path, 'r', encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    print("Loaded config:", config)
+    return config
 # ---------------------------------------------------------------------------- #
 # 4. Main training flow
 # ---------------------------------------------------------------------------- #
 def main():
-    config = parse_args()
+    args = parse_args()
+    cfg = load_config(args.config)
     # Config & Processor
     model_config = VisionLanguageConfig(
-        vision_model_name=config.model.vision_model_name,
-        language_model_name=config.model.language_model_name,
-        projector_type=config.model.projector_type,
-        use_resampler=config.model.use_resampler,
-        mm_spatial_pool_mode=config.model.mm_spatial_pool_mode,
-        mm_newline_position=config.model.mm_newline_position,
-        freeze_vision=config.model.freeze_vision,
-        freeze_llm=config.model.freeze_llm,
-                                  )
+        vision_model_name=cfg.model.vision_model_name,
+        language_model_name=cfg.model.language_model_name,
+        projector_type=cfg.model.projector_type,
+        use_resampler=cfg.model.use_resampler,
+        mm_spatial_pool_mode=cfg.model.mm_spatial_pool_mode,
+        mm_newline_position=cfg.model.mm_newline_position,
+        freeze_vision=cfg.model.freeze_vision,
+        freeze_llm=cfg.model.freeze_llm,
+    )
 
-    
+    # Load the model
     model = CustomVLMModel(model_config)
-    vision_processor = AutoProcessor.from_pretrained(config.model.vision_model_name)
+    vision_processor = AutoProcessor.from_pretrained(cfg.model.vision_model_name)
     language_processor = deepcopy(model.tokenizer)
-    
-    # Dataset
-    train_ds = None #TODO
-    
-    # Training args
-    model_name = config.model.name
-    
-    lora_config = LoraConfig(
-    task_type=TaskType.SEQUENCE_CLASSIFICATION,
-    r=128,  # rank
-    lora_alpha=64,
-    lora_dropout=0.1
-    )
-    
-    training_args = TrainingArguments(
-        output_dir=config.training,
-        run_name=config.training.run_name,
-        logging_dir=config.training.logging_dir,
-        deepspeed=config['deepspeed']['config'] if config['deepspeed']['enabled'] else None,
-        # Training
-        num_train_epochs=config.training.num_train_epochs,
-        per_device_train_batch_size=config.training.per_device_train_batch_size,
-        gradient_accumulation_steps=config.training.gradient_accumulation_steps,
-        learning_rate=config.training.learning_rate,
-        weight_decay=config.training.weight_decay,
-        warmup_steps=config.training.warmup_steps,
-        # Evaluation
-        eval_strategy=config.training.eval_strategy,
-        per_device_eval_batch_size=config.training.per_device_eval_batch_size,
-        eval_steps=config.training.eval_steps,
-        # Save
-        save_strategy=config.training.save_strategy,
-        save_steps=config.training.save_steps,
-        save_total_limit=config.training.save_total_limit,
-        greater_is_better=config.training.greater_is_better,
-        # Repoting
-        report_to=config.training.report_to,
-    )
-    
 
+    # Dataset
+    train_ds = VLMDataset(
+        data_path=cfg.dataset.data_path,
+        data_files=cfg.dataset.data_files,
+        image_placeholder=DEFAULT_IMAGE_TOKEN,
+        max_frames_num=cfg.dataset.max_frames_num,
+        fps=cfg.dataset.fps,
+        img_processor=vision_processor,
+        tokenizer=language_processor,
+        force_sample=cfg.dataset.force_sample
+    )
+
+    # LORA
+    lora_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        r=128,
+        lora_alpha=64,
+        lora_dropout=0.1
+    )
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
+
+    training_args = TrainingArguments(
+        output_dir=cfg.training.output_dir,
+        run_name=cfg.training.run_name,
+        logging_dir=cfg.training.logging_dir,
+        deepspeed=cfg.deepspeed.config if cfg.deepspeed.enabled else None,
+
+        # optimisation / schedule
+        num_train_epochs=cfg.training.num_epochs,
+        per_device_train_batch_size=cfg.training.batch_size.train,
+        per_device_eval_batch_size=cfg.training.batch_size.eval,
+        gradient_accumulation_steps=cfg.training.gradient_accumulation_steps,
+        learning_rate=cfg.training.learning_rate,
+        weight_decay=cfg.training.weight_decay,
+        warmup_ratio=cfg.training.warmup_ratio,
+
+        # evaluation / save
+        evaluation_strategy=cfg.training.eval_strategy,
+        eval_steps=cfg.training.eval_steps,
+        save_strategy=cfg.training.save_strategy,
+        save_steps=cfg.training.save_steps,
+        save_total_limit=cfg.training.save_total_limit,
+        load_best_model_at_end=True,
+        metric_for_best_model=cfg.training.metric_for_best_model,
+        greater_is_better=cfg.training.greater_is_better,
+
+        report_to=cfg.training.report_to,
+        logging_steps=cfg.training.logging_steps,
+    )
+
+    data_collator = MultimodalCollator()
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
-        data_collator=collator,
+        data_collator=data_collator,
     )
 
     trainer.train()
