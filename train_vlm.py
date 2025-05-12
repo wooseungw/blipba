@@ -170,7 +170,7 @@ def main():
         warmup_ratio=cfg.training.warmup_ratio,
         dataloader_num_workers=cfg.training.dataloader_num_workers,
 
-        evaluation_strategy=cfg.training.eval_strategy,
+        eval_strategy=cfg.training.eval_strategy,
         eval_steps=cfg.training.eval_steps,
 
         save_strategy=cfg.training.save_strategy,
