@@ -7,6 +7,7 @@ from typing import Union
 import numpy as np
 from decord import VideoReader, cpu
 from pathlib import Path
+import logging
 
 from transformers import PreTrainedTokenizer
 from transformers import AutoProcessor
@@ -80,6 +81,16 @@ class VLMDataset(Dataset):
                 self.data.extend(json.load(f))   # 각 파일이 list[dict] 구조라고 가정
         print()
         print("length of dataset:", len(self.data))
+        # --- Filter out samples with missing video files -----------------------
+        valid_data = []
+        for entry in self.data:
+            video_rel = entry.get("video", "")
+            video_full = Path(data_path) / video_rel
+            if video_full.is_file():
+                valid_data.append(entry)
+            else:
+                logging.warning(f"Missing video file, skipping sample: {video_full}")
+        self.data = valid_data
         self.data_path = data_path
         self.max_frames_num = max_frames_num
         self.fps = fps
