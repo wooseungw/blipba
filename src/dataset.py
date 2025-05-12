@@ -52,6 +52,7 @@ class VLMDataset(Dataset):
             force_sample (bool): Whether to force uniform frame sampling.
         """
         root = Path(data_path)
+        print(f"Loading data from {root}")
         # --- JSON 파일 경로 수집 ------------------------------------------------
         if data_files is None:
             json_paths = sorted(root.rglob("*.json"))           # ①
@@ -74,9 +75,11 @@ class VLMDataset(Dataset):
         # --- JSON 로드 & 병합 ---------------------------------------------------
         self.data = []
         for p in json_paths:
+            print(f"Loading {p}", end=" ")
             with open(p, "r") as f:
                 self.data.extend(json.load(f))   # 각 파일이 list[dict] 구조라고 가정
-
+        print()
+        print("length of dataset:", len(self.data))
         self.data_path = data_path
         self.max_frames_num = max_frames_num
         self.fps = fps
