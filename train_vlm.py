@@ -153,6 +153,7 @@ def main():
         lora_alpha      = 64,
         lora_dropout    = 0.1,
         base_model_name_or_path = cfg.model.llm_model_name,
+        tokenizer_name_or_path = cfg.model.llm_model_name,
         target_modules  = lora_target_modules,
         bias            = "none"
     )
@@ -199,7 +200,9 @@ def main():
         args=training_args,
         train_dataset=train_ds,
         data_collator=data_collator,
-        tokenizer=model.tokenizer
+        # Hugging Face 5.0 이후 `tokenizer` 인자가 폐지 → processor/토크나이저 모두 처리
+        processing_class=language_processor,   # future‑proof
+        label_names=["labels"]                 # suppress “No label_names …” warning
     )
     trainer.add_callback(CopyProcessorCallback(vision_processor))
     trainer.train()
