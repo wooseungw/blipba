@@ -67,7 +67,7 @@ class CustomVLMModel(PreTrainedModel):
         # 4) Optional resampler ---------------------------------------------
         if getattr(config, "use_resampler", False):
             from resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
-            self.resampler = MambaCompressor(d_model=d_v, n_layer=1, fp32=False)
+            self.resampler = MambaCompressor(d_model=d_v, n_layer=1, fp32=False).to(dtype)
         else:
             self.resampler = None
 
