@@ -10,8 +10,8 @@ model:
     freeze_llm: true
 
 data:
-    dir: "data/quic360"
-    train_file: "train.csv"
+    data_path: "DATAS/train"
+    train_file: "NextQA/"
 
 # 학습 설정
 training:

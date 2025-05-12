@@ -2,7 +2,8 @@ import torch
 import json
 import os
 from torch.utils.data import Dataset
-from typing import Dict
+from typing import Dict, List
+from typing import Union
 import numpy as np
 from decord import VideoReader, cpu
 from pathlib import Path
@@ -32,8 +33,8 @@ def load_video(video_path, max_frames_num,fps=1,force_sample=False):
 class VLMDataset(Dataset):
     def __init__(
         self, 
-        data_path: str = "DATAS/train/", 
-        data_files: str = "NextQA/0_30_s_nextqa_mc_qa.json",
+        data_path: str = "DATAS/train/",
+        data_files: Union[str, List[str], None] = None,
         image_placeholder: str = DEFAULT_IMAGE_TOKEN,
         max_frames_num: int = 64,
         fps: int = 1,
@@ -50,8 +51,32 @@ class VLMDataset(Dataset):
             image_placeholder (str): Placeholder for images in the text.
             force_sample (bool): Whether to force uniform frame sampling.
         """
-        with open(Path(data_path) / data_files, 'r') as f:
-            self.data = json.load(f)
+        root = Path(data_path)
+        # --- JSON 파일 경로 수집 ------------------------------------------------
+        if data_files is None:
+            json_paths = sorted(root.rglob("*.json"))           # ①
+        elif isinstance(data_files, str):
+            candidate = root / data_files
+            if candidate.is_dir():                              # ②
+                json_paths = sorted(candidate.rglob("*.json"))
+            elif candidate.suffix == ".json":                   # ③
+                json_paths = [candidate]
+            else:
+                raise ValueError(f"data_files 경로가 올바르지 않습니다: {candidate}")
+        elif isinstance(data_files, (list, tuple)):             # ④
+            json_paths = [root / p for p in data_files]
+        else:
+            raise TypeError("data_files는 str, list[str], None만 허용됩니다.")
+
+        if not json_paths:
+            raise FileNotFoundError("주어진 경로에서 JSON 파일을 찾지 못했습니다.")
+
+        # --- JSON 로드 & 병합 ---------------------------------------------------
+        self.data = []
+        for p in json_paths:
+            with open(p, "r") as f:
+                self.data.extend(json.load(f))   # 각 파일이 list[dict] 구조라고 가정
+
         self.data_path = data_path
         self.max_frames_num = max_frames_num
         self.fps = fps
