@@ -228,14 +228,14 @@ class Mamba(nn.Module):
         Returns: same shape as hidden_states
         """
         batch, seqlen, dim = hidden_states.shape
-        print(f"hidden_states shape: {hidden_states.shape}, batch: {batch}, seqlen: {seqlen}, dim: {dim}")
+        # print(f"hidden_states shape: {hidden_states.shape}, batch: {batch}, seqlen: {seqlen}, dim: {dim}")
         conv_state, ssm_state = None, None
         if inference_params is not None:
             conv_state, ssm_state = self._get_states_from_cache(inference_params, batch)
             if inference_params.seqlen_offset > 0:
                 # The states are updated inplace
                 out, _, _ = self.step(hidden_states, conv_state, ssm_state)
-                print(f"out shape: {out.shape}")
+                # print(f"out shape: {out.shape}")
                 return out
 
         # We do matmul and transpose BLH -> HBL at the same time
@@ -245,12 +245,12 @@ class Mamba(nn.Module):
             "d (b l) -> b d l",
             l=seqlen,
         )
-        print(f"xz shape: {xz.shape}")
+        # print(f"xz shape: {xz.shape}")
         if self.in_proj.bias is not None:
             xz = xz + rearrange(self.in_proj.bias.to(dtype=xz.dtype), "d -> d 1")
-        print(f"xz shape after bias: {xz.shape}")
+        # print(f"xz shape after bias: {xz.shape}")
         A = -torch.exp(self.A_log.float())  # (d_inner, d_state)
-        print(f"A shape: {A.shape}")
+        # print(f"A shape: {A.shape}")
         # In the backward pass we write dx and dz next to each other to avoid torch.cat
         if (
             self.use_fast_path and inference_params is None

@@ -114,7 +114,7 @@ def main():
         projector_type=cfg.model.projector_type,
         use_resampler=cfg.model.use_resampler,
         mm_spatial_pool_mode=cfg.model.mm_spatial_pool_mode,
-        mm_newline_position=getattr(cfg.model, "mm_newline_position", "end"),
+        mm_newline_position=getattr(cfg.model, "mm_newline_position", "grid"),
         freeze_vision=cfg.model.freeze_vision,
         freeze_llm=cfg.model.freeze_llm,
     )
