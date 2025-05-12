@@ -55,8 +55,18 @@ class MultimodalCollator:
 
     def __call__(self, features):
         # Extract all components from features
+        # Check if pixel_values is 5D (batch, frames, channels, height, width)
+        if len(features[0]['pixel_values'].shape) == 5:
+            # Stack and then reshape to combine batch and frame dimensions
+            pixel_values = torch.stack([f['pixel_values'] for f in features])
+            b, frames, c, h, w = pixel_values.shape
+            pixel_values = pixel_values.reshape(b * frames, c, h, w)
+        else:
+            # Regular 4D case (batch, channels, height, width)
+            pixel_values = torch.stack([f['pixel_values'] for f in features])
+            
         batch = {
-            'pixel_values': torch.stack([f['pixel_values'] for f in features]),
+            'pixel_values': pixel_values,
             'input_ids': torch.stack([f['input_ids'] for f in features]),
             'attention_mask': torch.stack([f['attention_mask'] for f in features]),
         }
