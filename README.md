@@ -33,7 +33,7 @@ pip install -r requirements.txt
 ```
 #### Install Blipba (May not requirements work)
 ```
-pip install mamba-ssm[causal-conv1d]
+pip install mamba-ssm[causal-conv1d] --no-build-isolation
 pip install deepspeed
 conda install -y cuda-cudart cuda-version=12
 conda install -y -c conda-forge cuda-nvcc=12.1

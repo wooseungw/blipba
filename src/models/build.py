@@ -45,6 +45,7 @@ class CustomVLMModel(PreTrainedModel):
             config.vision_model_name,
             torch_dtype=vision_dtype,
         )
+        print(f"Vision encoder: {self.vision_encoder.__class__.__name__}")
         d_v = self.config.vision_config.hidden_size
 
         # 2) Language model --------------------------------------------------
@@ -52,6 +53,7 @@ class CustomVLMModel(PreTrainedModel):
             config.language_model_name,
             torch_dtype=llm_dtype,
         )
+        print(f"Language model: {self.llm.__class__.__name__}")
         d_l = self.config.language_config.hidden_size
 
         # 3) Projector -------------------------------------------------------
@@ -110,10 +112,10 @@ class CustomVLMModel(PreTrainedModel):
         
         # 4. 토큰 추가
         added = self.tokenizer.add_special_tokens(special_tokens)
-        print(f"추가된 토큰 수: {added}")
+        # print(f"추가된 토큰 수: {added}")
         
         # 5. 토크나이저 타입 확인 (tokenizer.__class__.__name__으로 출력)
-        print(f"토크나이저 타입: {self.tokenizer.__class__.__name__}")
+        # print(f"토크나이저 타입: {self.tokenizer.__class__.__name__}")
         
         # 6. 토큰-ID 매핑 설정 (BPE 기반 토크나이저 예시)
         if hasattr(self.tokenizer, 'encoder') and hasattr(self.tokenizer, 'decoder'):
@@ -154,16 +156,16 @@ class CustomVLMModel(PreTrainedModel):
         # 7. 모델 임베딩 크기 조정
         self.llm.resize_token_embeddings(len(self.tokenizer))
         
-        # 8. 결과 확인
-        print(f"추가 후 토큰 수: {len(self.tokenizer)}")
-        print(f"추가 후 특수 토큰 목록: {self.tokenizer.all_special_tokens}")
-        for token in special_tokens["additional_special_tokens"]:
-            curr_id = self.tokenizer.convert_tokens_to_ids(token)
-            print(f"토큰: {token}, ID: {curr_id}")
+        # # 8. 결과 확인
+        # print(f"추가 후 토큰 수: {len(self.tokenizer)}")
+        # print(f"추가 후 특수 토큰 목록: {self.tokenizer.all_special_tokens}")
+        # for token in special_tokens["additional_special_tokens"]:
+        #     curr_id = self.tokenizer.convert_tokens_to_ids(token)
+        #     print(f"토큰: {token}, ID: {curr_id}")
         
-        # 9. 내부 처리에서의 특수 인덱스 사용 설명
-        print("\n참고: 토크나이저에서는 음수 ID를 직접 사용할 수 없습니다.")
-        print("음수 값(IGNORE_INDEX=-100, IMAGE_TOKEN_INDEX=-200)은 내부 처리 로직에서 특별한 목적으로 사용됩니다.")
+        # # 9. 내부 처리에서의 특수 인덱스 사용 설명
+        # print("\n참고: 토크나이저에서는 음수 ID를 직접 사용할 수 없습니다.")
+        # print("음수 값(IGNORE_INDEX=-100, IMAGE_TOKEN_INDEX=-200)은 내부 처리 로직에서 특별한 목적으로 사용됩니다.")
     # ------------------------------------------------------------------ #
     # UTILS
     # ------------------------------------------------------------------ #
@@ -177,9 +179,9 @@ class CustomVLMModel(PreTrainedModel):
     # ------------------------------------------------------------------ #
     def _get_vision_embeds(self, pixel_values: torch.FloatTensor) -> torch.FloatTensor:
         """Vision encoder → (optional) resampler → projector → LLM‑space embeds."""
-        v_feat = self.vision_encoder(pixel_values=pixel_values).last_hidden_state  # (B,N,d_v)
-        v_emb = self.projector(v_feat)  # (B,N',d_l)
-        return v_emb
+        v_feat = self.vision_encoder(pixel_values=pixel_values).last_hidden_state  # (B*num_frames,N,d_v)
+        v_emb = self.projector(v_feat)  # (B*num_frames,N',d_l)
+        return v_emb  # (B*num_frames,N',d_l)
     
     def _get_2dPool(self, feature: torch.FloatTensor, stride: int = 2):
         """ViT patch token을 2‑D grid 로 reshape 후 pooling."""
@@ -187,7 +189,7 @@ class CustomVLMModel(PreTrainedModel):
         num_frames, num_tokens, num_dim = feature.shape
         
         # CLS 토큰 처리 - 첫 번째 토큰은 제외
-        has_cls_token = (num_tokens == 197)  # 14x14 + 1 = 197
+        has_cls_token = (num_tokens % 2 == 1)  # 14x14 + 1 = 197
         
         if has_cls_token:
             cls_token = feature[:, 0:1, :]  # CLS 토큰 분리
@@ -201,7 +203,7 @@ class CustomVLMModel(PreTrainedModel):
         if side * side != num_tokens:
             raise ValueError(f"토큰 수({num_tokens})가 완전한 정사각형이 아닙니다.")
         
-        print(f"입력 특성 모양: {feature.shape}, 사이드 길이: {side}")
+        # print(f"입력 특성 모양: {feature.shape}, 사이드 길이: {side}") # 입력 특성 모양: torch.Size([1, 197, 768]), 사이드 길이: 14
         patch_tokens = patch_tokens.view(num_frames, side, side, num_dim)  # (B, H, W, d_v)
 
         # 시간적 풀링 (필요한 경우)
@@ -228,7 +230,7 @@ class CustomVLMModel(PreTrainedModel):
             raise ValueError(f"예상치 못한 mm_spatial_pool_mode: {mode}")
         
         new_h, new_w = patch_tokens.shape[2:]
-        print(f"풀링 후 특성 모양: {patch_tokens.shape}, 새 패치 수: {new_h * new_w}")
+        # print(f"풀링 후 특성 모양: {patch_tokens.shape}, 새 패치 수: {new_h * new_w}") # torch.Size([1, 768, 7, 7]), 새 패치 수: 49
         
         # (B, d_v, H', W') → (B, H'*W', d_v)
         patch_tokens = patch_tokens.permute(0, 2, 3, 1).contiguous().view(num_frames, -1, num_dim)
@@ -262,7 +264,7 @@ class CustomVLMModel(PreTrainedModel):
         input_ids: torch.LongTensor,
         labels: torch.LongTensor,
         attention_mask: Optional[torch.LongTensor],
-        image_features: torch.FloatTensor,   # (B, M, d_l)
+        image_features: list,   # (B, M, d_l)
         embed_tokens_fn: nn.Module,
         image_token_index: int,
         *,
@@ -289,8 +291,11 @@ class CustomVLMModel(PreTrainedModel):
         seq_embeds, seq_labels = [], []
         for b in range(B):
             ids = ids_list[b]
+            print(f"전처리된 입력 ID 모양: {ids.shape}")  # 디버깅
             lbls = lbl_list[b]
+            print(f"전처리된 레이블 ID 모양: {lbls.shape}")
             vis_emb = image_features[b]                   # (M, d)
+            print(f"비전 임베딩 모양: {vis_emb.shape}")  # 디버깅
             if vis_emb.dim() == 1:
                 vis_emb = vis_emb.unsqueeze(0)
 
@@ -374,36 +379,35 @@ class CustomVLMModel(PreTrainedModel):
             processed_labels = self.preprocess_image_tokens(labels)
         else:
             processed_labels = processed_input_ids.clone()
-        
         print(f"전처리된 입력 ID 모양: {processed_input_ids.shape}")  # 디버깅
-        
+
+        self.current_batch_size = processed_input_ids.size(0)
         
         # 비전 인코딩
-        v_emb = self._get_vision_embeds(pixel_values)  # (B, N', d_l)
-        print(f"비전 인코딩 결과 모양: {v_emb.shape}")  # 디버깅
-        # 비전 임베딩 풀링
-        if self.config.mm_spatial_pool_mode != "none":
-            v_emb = self._get_2dPool(v_emb, stride=2)
-            print(f"풀링 후 비전 임베딩 모양: {v_emb.shape}")
+        v_embs = self._get_vision_embeds(pixel_values)  # (B*num_samples, N', d_l)
         
-        v_emb = self.newline_inserter(v_emb, self.image_newline)
+        v_embs = list(torch.split(v_embs,self.current_batch_size,dim=0))  # (B, num_samples, N', d_l)
         
-        # 중요: 배치 차원 추가 (비디오 경우 특별 처리)
-        if len(v_emb.shape) == 2:
-            # 배치 차원 추가: [N, d] -> [B, N, d]
-            B = processed_input_ids.size(0)
-            v_emb = v_emb.unsqueeze(0)
-            if B > 1:
-                v_emb = v_emb.expand(B, -1, -1)
+        for i, v_emb in enumerate(v_embs):
+            
+            # 비전 임베딩 풀링
+            if self.config.mm_spatial_pool_mode != "none":
+                v_emb = self._get_2dPool(v_emb, stride=2)
+                # print(f"풀링 후 비전 임베딩 모양: {v_emb.shape}")            
+            v_emb = self.newline_inserter(v_emb, self.image_newline)
         
-        print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
+
+            print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
+
+        
+        # print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
         
         # 이미지 토큰 대체
         inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
             labels=processed_labels,
             attention_mask=attention_mask,
-            image_features=v_emb,
+            image_features=v_embs,
             embed_tokens_fn=self.llm.get_input_embeddings(),
             image_token_index=IMAGE_TOKEN_INDEX,
             ignore_index=IGNORE_INDEX,
@@ -418,7 +422,70 @@ class CustomVLMModel(PreTrainedModel):
             labels=pad_lbl,
             return_dict=True,
         )
-
+    
+    @torch.no_grad()
+    def generate(
+        self,
+        pixel_values: torch.FloatTensor,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.LongTensor] = None,
+        **generate_kwargs
+    ):
+        """forward와 동일한 전처리 과정을 거친 후 자동회귀적 생성 수행"""
+        
+        # 1. 토큰 전처리 (forward와 동일)
+        processed_input_ids = self.preprocess_image_tokens(input_ids)
+        
+        # 2. 비전 인코딩 (forward와 동일)
+        v_emb = self._get_vision_embeds(pixel_values)  # (B, N', d_l)
+        
+        # 3. 비전 임베딩 풀링 (forward와 동일)
+        if self.config.mm_spatial_pool_mode != "none":
+            v_emb = self._get_2dPool(v_emb, stride=2)
+        print(f"풀링 후 비전 임베딩 모양: {v_emb.shape}")  # 디버깅
+        # 4. 줄바꿈 토큰 삽입 (forward와 동일)
+        v_emb = self.newline_inserter(v_emb, self.image_newline)
+        print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
+        # 5. 배치 차원 추가 (forward와 동일)
+        if len(v_emb.shape) == 2:
+            B = processed_input_ids.size(0)
+            v_emb = v_emb.unsqueeze(0)
+            if B > 1:
+                v_emb = v_emb.expand(B, -1, -1)
+        
+        # 6. 이미지 토큰 대체 (labels는 generate에서 필요 없으므로 None 사용)
+        inp_emb, _, pad_mask, pos_ids = self._replace_image_tokens_with_features(
+            input_ids=processed_input_ids,
+            labels=processed_input_ids.clone(),  # generate에서는 labels 무시됨
+            attention_mask=attention_mask,
+            image_features=v_emb,
+            embed_tokens_fn=self.llm.get_input_embeddings(),
+            image_token_index=IMAGE_TOKEN_INDEX,
+            ignore_index=IGNORE_INDEX,
+            max_length=self.config.language_config.max_position_embeddings,
+            padding_side=self.tokenizer.padding_side,
+        )
+        
+        # 7. 임베딩 기반 생성을 위한 LLM 준비
+        # HuggingFace 모델의 생성은 일반적으로 input_ids를 사용하지만,
+        # 우리는 이미 embedding을 준비했으므로 custom_inputs를 통해 전달
+        
+        # 일부 모델은 input_embeds를 직접 지원하지 않을 수 있어 prepare_inputs_for_generation 활용
+        model_kwargs = {
+            "inputs_embeds": inp_emb,
+            "attention_mask": pad_mask if attention_mask is not None else None,
+            "position_ids": pos_ids,
+        }
+        
+        # 8. 생성 수행 (원래 GenerationMixin.generate 호출)
+        # LLM의 generate 메소드를 활용하되, custom_inputs를 통해 임베딩 전달
+        outputs = self.llm.generate(
+            input_ids=None,  # input_ids 대신 inputs_embeds 사용
+            **model_kwargs,
+            **generate_kwargs
+        )
+        
+        return outputs
 if __name__ == "__main__":
     cfg = VisionLanguageConfig(
         vision_model_name="google/vit-base-patch16-224",
@@ -427,10 +494,20 @@ if __name__ == "__main__":
     )
     model = CustomVLMModel(cfg).eval().to("cuda")
 
-    dummy_img = torch.randn(1, 3, 224, 224, device="cuda", dtype=torch.float16)
+    dummy_img = torch.randn(4, 3, 224, 224, device="cuda", dtype=torch.float16)
     prompt = f"{DEFAULT_IM_START_TOKEN} hello {DEFAULT_IMAGE_TOKEN} world {DEFAULT_IM_END_TOKEN}"
-    tok = model.tokenizer(prompt, return_tensors="pt", padding=True).to("cuda")
-
+    # Create a batch of prompts
+    prompts = [
+        f"{DEFAULT_IM_START_TOKEN} hello {DEFAULT_IMAGE_TOKEN} world {DEFAULT_IM_END_TOKEN}",
+        f"{DEFAULT_IM_START_TOKEN} test {DEFAULT_IMAGE_TOKEN} example {DEFAULT_IM_END_TOKEN}"
+    ]
+    tok = model.tokenizer(prompts, return_tensors="pt", padding=True).to("cuda")
+    print("Input IDs shape:", tok.input_ids.shape)
     with torch.no_grad():
         out = model(pixel_values=dummy_img, input_ids=tok.input_ids, attention_mask=tok.attention_mask, labels=tok.input_ids)
-    print("Logits shape:", out.logits.shape)
+        print("Logits shape:", out.logits.shape)
+    with torch.no_grad():
+        out = model.generate(pixel_values=dummy_img, input_ids=tok.input_ids,max_new_tokens =50 ,attention_mask=tok.attention_mask, labels=tok.input_ids)
+        print("Generated IDs:", out)
+
+    

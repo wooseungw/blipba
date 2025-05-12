@@ -33,6 +33,7 @@ class VisionLanguageConfig(PretrainedConfig):
         compressor_type: Optional[str] = None,
         mm_spatial_pool_mode: str = "average",
         mm_patch_merge_type: str = "maxpool2x2",
+        mm_newline_position: str = "grid",
         max_num_patches: Optional[int] = None,
         num_image_tokens: int = 256,
         freeze_vision: bool = True,
@@ -47,7 +48,10 @@ class VisionLanguageConfig(PretrainedConfig):
 
         # Nested HF configs for each backbone
         self.vision_config = AutoConfig.from_pretrained(self.vision_model_name)
+        self.vision_config = self.vision_config.vision_config if hasattr(self.vision_config, "vision_config") else self.vision_config
         self.language_config = AutoConfig.from_pretrained(self.language_model_name)
+        self.language_config = self.language_config.text_config if hasattr(self.language_config, "text_config") else self.language_config
+        
 
         # Projector and compressor settings
         self.projector_type = projector_type
@@ -57,6 +61,7 @@ class VisionLanguageConfig(PretrainedConfig):
         # Spatial pooling & patch merging
         self.mm_spatial_pool_mode = mm_spatial_pool_mode
         self.mm_patch_merge_type = mm_patch_merge_type
+        self.mm_newline_position = mm_newline_position
         self.max_num_patches = max_num_patches
 
         # Prefix fusion
@@ -79,6 +84,7 @@ class VisionLanguageConfig(PretrainedConfig):
             "compressor_type": self.compressor_type,
             "mm_spatial_pool_mode": self.mm_spatial_pool_mode,
             "mm_patch_merge_type": self.mm_patch_merge_type,
+            "mm_newline_position": self.mm_newline_position,
             "max_num_patches": self.max_num_patches,
             "num_image_tokens": self.num_image_tokens,
             "freeze_vision": self.freeze_vision,
