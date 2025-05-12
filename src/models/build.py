@@ -181,68 +181,52 @@ class CustomVLMModel(PreTrainedModel):
         """Vision encoder → (optional) resampler → projector → LLM‑space embeds."""
         v_feat = self.vision_encoder(pixel_values=pixel_values).last_hidden_state  # (B*num_frames,N,d_v)
         v_emb = self.projector(v_feat)  # (B*num_frames,N',d_l)
+        print(f"비전 임베딩 모양: {v_emb.shape}")  # 디버깅
         return v_emb  # (B*num_frames,N',d_l)
     
-    def _get_2dPool(self, feature: torch.FloatTensor, stride: int = 2):
-        """ViT patch token을 2‑D grid 로 reshape 후 pooling."""
-        # feature: (num_samples, N, d_v)
-        num_frames, num_tokens, num_dim = feature.shape
+    def _get_2dPool(self, features: torch.FloatTensor, stride: int = 2):
+        """ViT patch token을 2‑D grid 로 reshape 후 pooling."""
+        # feature: (B, N, d_v)
+        
+        num_frames, num_tokens, num_dim = features.shape
+        height = weight = int(math.sqrt(num_tokens))
         
         # CLS 토큰 처리 - 첫 번째 토큰은 제외
         has_cls_token = (num_tokens % 2 == 1)  # 14x14 + 1 = 197
         
         if has_cls_token:
-            cls_token = feature[:, 0:1, :]  # CLS 토큰 분리
-            patch_tokens = feature[:, 1:, :]
-            num_tokens = num_tokens - 1
-        else:
-            patch_tokens = feature
+            # cls_token = features[:, 0:1, :]  # CLS 토큰 분리
+            features = features[:, 1:, :]
         
-        # 패치 토큰을 2D 그리드로 재구성
-        side = int(math.sqrt(num_tokens))
-        if side * side != num_tokens:
-            raise ValueError(f"토큰 수({num_tokens})가 완전한 정사각형이 아닙니다.")
+        features = features.view(num_frames, height, weight, num_dim)
         
-        # print(f"입력 특성 모양: {feature.shape}, 사이드 길이: {side}") # 입력 특성 모양: torch.Size([1, 197, 768]), 사이드 길이: 14
-        patch_tokens = patch_tokens.view(num_frames, side, side, num_dim)  # (B, H, W, d_v)
-
-        # 시간적 풀링 (필요한 경우)
-        temporal_pooling = getattr(self.config, "temporal_pooling", 1)
-        if temporal_pooling > 1:
-            # 기존 코드와 동일한 시간적 풀링 구현
-            # ...
-            pass
-
-        # (B, H, W, d_v) → (B, d_v, H, W)
-        patch_tokens = patch_tokens.permute(0, 3, 1, 2).contiguous()
-
-        # 풀링 적용
-        mode = getattr(self.config, "mm_spatial_pool_mode", "average")
-        if mode == "average":
-            patch_tokens = nn.functional.avg_pool2d(patch_tokens, stride)
-        elif mode == "max":
-            patch_tokens = nn.functional.max_pool2d(patch_tokens, stride)
-        elif mode == "bilinear":
-            height, width = patch_tokens.shape[2:]
+        if self.config.use_resampler:
+            space_time_tokens = features.unsqueeze(0)
+        # print(f"feature 모양: {features.shape}")  # 디버깅
+        features = features.permute(0, 3, 1, 2)  # (B, d_v, H, W)
+        if self.config.mm_spatial_pool_mode == "average":
+            features = nn.functional.avg_pool2d(features, stride) 
+        elif self.config.mm_spatial_pool_mode == "max":
+            features = nn.functional.max_pool2d(features, stride)
+        elif self.config.mm_spatial_pool_mode == "bilinear":
+            height, width = features.shape[2:]
             scaled_shape = [math.ceil(height / stride), math.ceil(width / stride)]
-            patch_tokens = nn.functional.interpolate(patch_tokens, size=scaled_shape, mode="bilinear")
+            features = nn.functional.interpolate(features, size=scaled_shape, mode='bilinear') 
         else:
-            raise ValueError(f"예상치 못한 mm_spatial_pool_mode: {mode}")
+            raise ValueError(f"Unexpected mm_spatial_pool_mode: {self.config.mm_spatial_pool_mode}")
+        # print(f"pooling 후 feature 모양: {features.shape}")  # 디버깅
+        # (64, 3584, H, W) -> (64, 3584, H//stride, W//stride)
+        features = features.permute(0, 2, 3, 1)
+        # (64, H//stride, W//stride, 3584)
+        features = features.view(num_frames, -1, num_dim)
+        # print(f"feature 모양: {features.shape}")  # 디버깅
+        if self.config.use_resampler:
+            features = features.squeeze(0)
+            features = self.resampler(space_time_tokens, features)
+            features = torch.squeeze(features, 0)
+        # print(f"feature 모양: {features.shape}")  # 디버깅
+        return features  # (B, H//stride * W//stride, d_l)
         
-        new_h, new_w = patch_tokens.shape[2:]
-        # print(f"풀링 후 특성 모양: {patch_tokens.shape}, 새 패치 수: {new_h * new_w}") # torch.Size([1, 768, 7, 7]), 새 패치 수: 49
-        
-        # (B, d_v, H', W') → (B, H'*W', d_v)
-        patch_tokens = patch_tokens.permute(0, 2, 3, 1).contiguous().view(num_frames, -1, num_dim)
-        
-        # CLS 토큰 재결합 (있는 경우)
-        # if has_cls_token:
-        #     feature = torch.cat([cls_token, patch_tokens], dim=1)
-        # else:
-        feature = patch_tokens
-        
-        return feature
-
     # ------------------------------------------------------------------ #
     # IMAGE TOKEN REPLACEMENT (re‑implemented)
     # ------------------------------------------------------------------ #
@@ -379,30 +363,34 @@ class CustomVLMModel(PreTrainedModel):
             processed_labels = self.preprocess_image_tokens(labels)
         else:
             processed_labels = processed_input_ids.clone()
-        print(f"전처리된 입력 ID 모양: {processed_input_ids.shape}")  # 디버깅
+        
 
         self.current_batch_size = processed_input_ids.size(0)
-        
+        print(f"현재 배치 크기: {self.current_batch_size}")  # 디버깅
         # 비전 인코딩
         v_embs = self._get_vision_embeds(pixel_values)  # (B*num_samples, N', d_l)
         
         v_embs = list(torch.split(v_embs,self.current_batch_size,dim=0))  # (B, num_samples, N', d_l)
         
         for i, v_emb in enumerate(v_embs):
-            
             # 비전 임베딩 풀링
             if self.config.mm_spatial_pool_mode != "none":
-                v_emb = self._get_2dPool(v_emb, stride=2)
+                v_emb = self._get_2dPool(v_emb, stride=2) # (num_samples * N', d_l)
                 # print(f"풀링 후 비전 임베딩 모양: {v_emb.shape}")            
-            v_emb = self.newline_inserter(v_emb, self.image_newline)
-        
-
+            v_emb = self.newline_inserter(v_emb, self.image_newline) # (num_samples * N'+ New line tokens, d_l)
+            v_embs[i] = v_emb
             print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
-
-        
         # print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
         
         # 이미지 토큰 대체
+        # processed_input_ids: (B, L)
+        # processed_labels: (B, L)
+        # attention_mask: (B, L)
+        # v_embs: list[(num_samples * N'+ New line tokens, d_l),...]
+        print(f"전처리된 레이블 ID 모양: {processed_labels.shape}")  # 디버깅
+        print(f"전처리된 어텐션 마스크 모양: {attention_mask.shape}")
+        print(f"비전 임베딩 모양: {len(v_embs)},{v_embs[0].shape}")  # 디버깅
+        print("=================")  
         inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
             labels=processed_labels,
@@ -487,10 +475,12 @@ class CustomVLMModel(PreTrainedModel):
         
         return outputs
 if __name__ == "__main__":
+    vision = ["facebook/dino-vitb16"]
     cfg = VisionLanguageConfig(
-        vision_model_name="google/vit-base-patch16-224",
+        vision_model_name=vision[0],
         language_model_name="gpt2",
         use_resampler=False,
+        mm_spatial_pool_mode= "average",
     )
     model = CustomVLMModel(cfg).eval().to("cuda")
 
