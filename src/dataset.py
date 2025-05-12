@@ -30,22 +30,13 @@ def load_video(video_path, max_frames_num, fps=1, force_sample=False, img_proces
         frame_time = [i / vr.get_avg_fps() for i in frame_idx]
     frame_time = ",".join([f"{i:.2f}s" for i in frame_time])
     spare_frames = vr.get_batch(frame_idx).asnumpy()
-    # --- Resize frames if processor provided ---------------------------
-    if img_processor is not None:
-        # Determine target size
-        try:
-            size = img_processor.image_processor.size
-            target_h = size.get("height", size.get("shortest_edge", None))
-            target_w = size.get("width", size.get("longest_edge", None))
-        except Exception:
-            target_h, target_w = None, None
-        if target_h is not None and target_w is not None:
-            resized = []
-            for frm in spare_frames:
-                img = Image.fromarray(frm)
-                img = img.resize((target_w, target_h))
-                resized.append(np.array(img))
-            spare_frames = np.stack(resized, axis=0)
+    # --- Pad or truncate to fixed number of frames -------------------------
+    N, H, W, C = spare_frames.shape
+    if N < max_frames_num:
+        pad = np.zeros((max_frames_num - N, H, W, C), dtype=spare_frames.dtype)
+        spare_frames = np.concatenate([spare_frames, pad], axis=0)
+    elif N > max_frames_num:
+        spare_frames = spare_frames[:max_frames_num]
     return spare_frames, frame_time, video_time
 
 class VLMDataset(Dataset):
