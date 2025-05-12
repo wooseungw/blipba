@@ -176,7 +176,7 @@ class CustomVLMModel(PreTrainedModel):
         """Vision encoder → (optional) resampler → projector → LLM‑space embeds."""
         v_feat = self.vision_encoder(pixel_values=pixel_values).last_hidden_state  # (B*num_frames,N,d_v)
         v_emb = self.projector(v_feat)  # (B*num_frames,N',d_l)
-        print(f"비전 임베딩 모양: {v_emb.shape}")  # 디버깅
+        # print(f"비전 임베딩 모양: {v_emb.shape}")  # 디버깅
         return v_emb  # (B*num_frames,N',d_l)
     
     def _get_2dPool(self, features: torch.FloatTensor, stride: int = 2):
@@ -193,12 +193,12 @@ class CustomVLMModel(PreTrainedModel):
             features = features[:, 1:, :]
         
         features = features.view(num_frames, height, weight, num_dim)
-        print(f"feature 모양: {features.shape}")  # 디버깅
+        # print(f"feature 모양: {features.shape}")  # 디버깅
         if self.config.use_resampler:
             space_time_tokens = features.unsqueeze(0)
-            print(f"space_time_tokens 모양: {space_time_tokens.shape}")  # 디버깅
+            
         features = features.permute(0, 3, 1, 2).contiguous()  # (B, d_v, H, W)
-        print(f"feature 모양: {features.shape}")  # 디버깅
+        # print(f"feature 모양: {features.shape}")  # 디버깅
         if self.config.mm_spatial_pool_mode == "average":
             features = nn.functional.avg_pool2d(features, stride) 
         elif self.config.mm_spatial_pool_mode == "max":
@@ -209,7 +209,7 @@ class CustomVLMModel(PreTrainedModel):
             features = nn.functional.interpolate(features, size=scaled_shape, mode='bilinear') 
         else:
             raise ValueError(f"Unexpected mm_spatial_pool_mode: {self.config.mm_spatial_pool_mode}")
-        print(f"pooling 후 feature 모양: {features.shape}")  # 디버깅
+        # print(f"pooling 후 feature 모양: {features.shape}")  # 디버깅
         # (64, 3584, H, W) -> (64, 3584, H//stride, W//stride)
         features = features.permute(0, 2, 3, 1)
         # (64, H//stride, W//stride, 3584)
@@ -218,6 +218,7 @@ class CustomVLMModel(PreTrainedModel):
         if self.config.use_resampler:
             print("resampler 사용")
             features = features.unsqueeze(0)
+            print(f"space_time_tokens 모양: {space_time_tokens.shape}")  # 디버깅
             print(f"feature.unsqueeze 모양: {features.shape}")  # 디버깅
             features = self.resampler(space_time_tokens, features)
             features = torch.squeeze(features, 0)
@@ -475,7 +476,7 @@ if __name__ == "__main__":
     cfg = VisionLanguageConfig(
         vision_model_name=vision[0],
         language_model_name="gpt2",
-        use_resampler=False,
+        use_resampler=True,
         mm_spatial_pool_mode= "average",
     )
     model = CustomVLMModel(cfg).eval().to("cuda")
