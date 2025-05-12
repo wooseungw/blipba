@@ -131,12 +131,21 @@ def main():
         force_sample        = getattr(ds_cfg, "force_sample", False),
     )
 
-    # LORA
+    # LoRA -------------------------------------------------------------------
+    # Qwen / OPT‑style transformer blocks expose projection names below.
+    lora_target_modules = [
+        "q_proj", "k_proj", "v_proj",          # attention
+        "o_proj",
+        "gate_proj", "up_proj", "down_proj"    # MLP
+    ]
+
     lora_config = LoraConfig(
-        task_type=TaskType.CAUSAL_LM,
-        r=128,
-        lora_alpha=64,
-        lora_dropout=0.1
+        task_type       = TaskType.CAUSAL_LM,
+        r               = 128,
+        lora_alpha      = 64,
+        lora_dropout    = 0.1,
+        target_modules  = lora_target_modules,
+        bias            = "none"
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
