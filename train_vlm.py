@@ -153,7 +153,6 @@ def main():
         lora_alpha      = 64,
         lora_dropout    = 0.1,
         base_model_name_or_path = cfg.model.llm_model_name,
-        tokenizer_name_or_path = cfg.model.llm_model_name,
         target_modules  = lora_target_modules,
         bias            = "none"
     )
