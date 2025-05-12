@@ -127,8 +127,7 @@ class VLMDataset(Dataset):
         # Tokenize with HF chat template
         if self.tokenizer is None:
             raise ValueError("`tokenizer` must be provided.")
-        for i in messages:
-            print(i)
+
         tokenized = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
