@@ -199,9 +199,7 @@ def main():
         args=training_args,
         train_dataset=train_ds,
         data_collator=data_collator,
-        # Hugging Face 5.0 이후 `tokenizer` 인자가 폐지 → processor/토크나이저 모두 처리
-        processing_class=language_processor,   # future‑proof
-        label_names=["labels"]                 # suppress “No label_names …” warning
+        tokenizer=model.tokenizer
     )
     trainer.add_callback(CopyProcessorCallback(vision_processor))
     trainer.train()
