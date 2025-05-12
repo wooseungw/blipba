@@ -10,7 +10,7 @@ from transformers import (
     PreTrainedModel,
 )
 
-from config import VisionLanguageConfig
+from .config import VisionLanguageConfig
 from projector import build_vision_projector
 from newline import NewlineTokenInserter
 from src.constant import (
