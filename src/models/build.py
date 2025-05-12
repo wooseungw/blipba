@@ -36,11 +36,10 @@ class CustomVLMModel(PreTrainedModel):
         config: VisionLanguageConfig,
         *,
         dtype: torch.dtype = torch.float16,
-        
-    ) -> None:
+        ) -> None:
         super().__init__(config)
         self.config = config
-        self.dtype = dtype
+        
         # 1) Vision encoder --------------------------------------------------
         self.vision_encoder = AutoModel.from_pretrained(
             config.vision_model_name,
@@ -56,7 +55,7 @@ class CustomVLMModel(PreTrainedModel):
         ).to(dtype)
         print(f"Language model: {self.llm.__class__.__name__}")
         d_l = self.config.language_config.hidden_size
-
+        self.dtype = dtype
         # 3) Projector -------------------------------------------------------
         self.projector = build_vision_projector(
             d_v=d_v,
