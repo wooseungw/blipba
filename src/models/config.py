@@ -82,7 +82,6 @@ class VisionLanguageConfig(PretrainedConfig):
             "mm_spatial_pool_mode": self.mm_spatial_pool_mode,
             # "mm_patch_merge_type": self.mm_patch_merge_type,
             "mm_newline_position": self.mm_newline_position,
-            "max_num_patches": self.max_num_patches,
             "img_size": self.img_size,
             "freeze_vision": self.freeze_vision,
             "freeze_llm": self.freeze_llm,

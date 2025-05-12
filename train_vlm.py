@@ -141,6 +141,10 @@ def main():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
+    # Move model to GPU explicitly (Trainer would do this as well, but we place it early for PEFT initialization safety)
+    if torch.cuda.is_available():
+        model.cuda()
+
     training_args = TrainingArguments(
         output_dir=cfg.training.output_dir,
         run_name=cfg.training.run_name,
