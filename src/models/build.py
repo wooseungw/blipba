@@ -11,8 +11,8 @@ from transformers import (
 )
 
 from .config import VisionLanguageConfig
-from projector import build_vision_projector
-from newline import NewlineTokenInserter
+from .projector import build_vision_projector
+from .newline import NewlineTokenInserter
 from src.constant import (
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
