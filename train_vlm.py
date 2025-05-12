@@ -11,6 +11,8 @@ from copy import deepcopy
 from peft import LoraConfig, TaskType, get_peft_model
 
 import yaml
+from omegaconf import OmegaConf
+from types import SimpleNamespace
 
 from src.dataset import VLMDataset
 from src.models.config import VisionLanguageConfig
@@ -69,9 +71,6 @@ class MultimodalCollator:
         
         return batch
 
-def collator(features):
-    return MultimodalCollator()(features)
-
 # ---------------------------------------------------------------------------- #
 # 3. Argument Parser
 # ---------------------------------------------------------------------------- #
@@ -80,11 +79,19 @@ def parse_args():
     parser.add_argument("--config", type=str, default="config/train.yaml", help="Path to the YAML config")
     return parser.parse_args()
 
-def load_config(config_path):
-    with open(config_path, 'r', encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    print("Loaded config:", config)
-    return config
+def load_config(config_path: str):
+    """
+    Load YAML into an OmegaConf DictConfig so we can keep dot‑access,
+    then resolve any {model_name} placeholders.
+    """
+    cfg = OmegaConf.load(config_path)
+
+    # Resolve {model_name} templates
+    model_name = cfg.model.name
+    cfg.training.output_dir = cfg.training.output_dir.format(model_name=model_name)
+    cfg.training.run_name   = cfg.training.run_name.format(model_name=model_name)
+    cfg.training.logging_dir = cfg.training.logging_dir.format(model_name=model_name)
+    return cfg
 # ---------------------------------------------------------------------------- #
 # 4. Main training flow
 # ---------------------------------------------------------------------------- #
@@ -94,11 +101,11 @@ def main():
     # Config & Processor
     model_config = VisionLanguageConfig(
         vision_model_name=cfg.model.vision_model_name,
-        language_model_name=cfg.model.language_model_name,
+        language_model_name=cfg.model.llm_model_name,
         projector_type=cfg.model.projector_type,
         use_resampler=cfg.model.use_resampler,
         mm_spatial_pool_mode=cfg.model.mm_spatial_pool_mode,
-        mm_newline_position=cfg.model.mm_newline_position,
+        mm_newline_position=getattr(cfg.model, "mm_newline_position", "end"),
         freeze_vision=cfg.model.freeze_vision,
         freeze_llm=cfg.model.freeze_llm,
     )
@@ -134,29 +141,31 @@ def main():
         output_dir=cfg.training.output_dir,
         run_name=cfg.training.run_name,
         logging_dir=cfg.training.logging_dir,
-        deepspeed=cfg.deepspeed.config if cfg.deepspeed.enabled else None,
+        deepspeed=cfg.deepspeed.config if "deepspeed" in cfg and cfg.deepspeed.enabled else None,
 
-        # optimisation / schedule
-        num_train_epochs=cfg.training.num_epochs,
+        num_train_epochs=cfg.training.num_train_epochs,
         per_device_train_batch_size=cfg.training.batch_size.train,
         per_device_eval_batch_size=cfg.training.batch_size.eval,
         gradient_accumulation_steps=cfg.training.gradient_accumulation_steps,
+        gradient_checkpointing=cfg.training.gradient_checkpointing,
         learning_rate=cfg.training.learning_rate,
         weight_decay=cfg.training.weight_decay,
         warmup_ratio=cfg.training.warmup_ratio,
+        dataloader_num_workers=cfg.training.dataloader_num_workers,
 
-        # evaluation / save
         evaluation_strategy=cfg.training.eval_strategy,
         eval_steps=cfg.training.eval_steps,
+
         save_strategy=cfg.training.save_strategy,
         save_steps=cfg.training.save_steps,
         save_total_limit=cfg.training.save_total_limit,
-        load_best_model_at_end=True,
+        load_best_model_at_end=cfg.training.load_best_model_at_end,
         metric_for_best_model=cfg.training.metric_for_best_model,
         greater_is_better=cfg.training.greater_is_better,
 
         report_to=cfg.training.report_to,
         logging_steps=cfg.training.logging_steps,
+        max_grad_norm=cfg.training.max_grad_norm,
     )
 
     data_collator = MultimodalCollator()
