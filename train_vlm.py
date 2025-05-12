@@ -165,12 +165,12 @@ def main():
         run_name=cfg.training.run_name,
         logging_dir=cfg.training.logging_dir,
         deepspeed=cfg.deepspeed.config if "deepspeed" in cfg and cfg.deepspeed.enabled else None,
-        gradient_checkpointing=False,   # 체크포인트 기능 완전 비활성화
+
         num_train_epochs=cfg.training.num_train_epochs,
         per_device_train_batch_size=cfg.training.batch_size.train,
         
         gradient_accumulation_steps=cfg.training.gradient_accumulation_steps,
-        gradient_checkpointing=cfg.training.gradient_checkpointing,
+        gradient_checkpointing=False,
         learning_rate=cfg.training.learning_rate,
         weight_decay=cfg.training.weight_decay,
         warmup_ratio=cfg.training.warmup_ratio,
