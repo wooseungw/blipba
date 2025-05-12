@@ -13,6 +13,7 @@ from transformers import (
 from .config import VisionLanguageConfig
 from .projector import build_vision_projector
 from .newline import NewlineTokenInserter
+from .resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
 from src.constant import (
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
@@ -66,7 +67,6 @@ class CustomVLMModel(PreTrainedModel):
         print("dytpe:", vision_dtype)
         # 3) Optional resampler ---------------------------------------------
         if getattr(config, "use_resampler", False):
-            from resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
             self.resampler = MambaCompressor(d_model=d_v, n_layer=1, fp32=False)
         else:
             self.resampler = None
