@@ -239,13 +239,13 @@ class CustomVLMModel(PreTrainedModel):
         features = features.view(num_frames, -1, num_dim)
         # print(f"feature 모양: {features.shape}")  # 디버깅
         if self.config.use_resampler:
-            print("resampler 사용")
+            # print("resampler 사용")
             features = features.unsqueeze(0)
-            print(f"space_time_tokens 모양: {space_time_tokens.shape}")  # 디버깅
-            print(f"feature.unsqueeze 모양: {features.shape}")  # 디버깅
+            # print(f"space_time_tokens 모양: {space_time_tokens.shape}")  # 디버깅
+            # print(f"feature.unsqueeze 모양: {features.shape}")  # 디버깅
             features = self.resampler(space_time_tokens, features)
             features = torch.squeeze(features, 0)
-            print(f"feature 모양: {features.shape}")  # 디버깅
+            # print(f"feature 모양: {features.shape}")  # 디버깅
         # print(f"feature 모양: {features.shape}")  # 디버깅
         return features.to(self.llm_dtype)  # (B, H//stride * W//stride, d_l)
         
@@ -385,7 +385,7 @@ class CustomVLMModel(PreTrainedModel):
         
 
         self.current_batch_size = processed_input_ids.size(0)
-        print(f"현재 배치 크기: {self.current_batch_size}")  # 디버깅
+        # print(f"현재 배치 크기: {self.current_batch_size}")  # 디버깅
         # 비전 인코딩
         v_embs = self._get_vision_embeds(pixel_values)  # (B*num_samples, N', d_l)
         

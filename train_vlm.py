@@ -159,7 +159,7 @@ def main():
     # Move model to GPU explicitly (Trainer would do this as well, but we place it early for PEFT initialization safety)
     if torch.cuda.is_available():
         model.cuda()
-
+    model.gradient_checkpointing_disable()   # 모델 내부의 checkpoint 모듈 비활성화
     training_args = TrainingArguments(
         output_dir=cfg.training.output_dir,
         run_name=cfg.training.run_name,
