@@ -275,11 +275,8 @@ class CustomVLMModel(PreTrainedModel):
         seq_embeds, seq_labels = [], []
         for b in range(B):
             ids = ids_list[b]
-            print(f"전처리된 입력 ID 모양: {ids.shape}")  # 디버깅
             lbls = lbl_list[b]
-            print(f"전처리된 레이블 ID 모양: {lbls.shape}")
-            vis_emb = image_features[b]                   # (M, d)
-            print(f"비전 임베딩 모양: {vis_emb.shape}")  # 디버깅
+            vis_emb = image_features[b]                   # (M, d
             if vis_emb.dim() == 1:
                 vis_emb = vis_emb.unsqueeze(0)
 
@@ -402,7 +399,10 @@ class CustomVLMModel(PreTrainedModel):
             max_length=self.config.language_config.max_position_embeddings,
             padding_side=self.tokenizer.padding_side,
         )
-        
+        print(f"전처리된 입력 ID 모양: {inp_emb.shape}")  # 디버깅
+        print(f"전처리된 레이블 ID 모양: {pad_lbl.shape}")
+        print(f"전처리된 어텐션 마스크 모양: {pad_mask.shape}")
+        print(f"전처리된 포지션 ID 모양: {pos_ids.shape}")
         return self.llm(
             inputs_embeds=inp_emb,
             attention_mask=pad_mask if attention_mask is not None else None,
@@ -430,10 +430,9 @@ class CustomVLMModel(PreTrainedModel):
         # 3. 비전 임베딩 풀링 (forward와 동일)
         if self.config.mm_spatial_pool_mode != "none":
             v_emb = self._get_2dPool(v_emb, stride=2)
-        print(f"풀링 후 비전 임베딩 모양: {v_emb.shape}")  # 디버깅
         # 4. 줄바꿈 토큰 삽입 (forward와 동일)
         v_emb = self.newline_inserter(v_emb, self.image_newline)
-        print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
+        # print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
         # 5. 배치 차원 추가 (forward와 동일)
         if len(v_emb.shape) == 2:
             B = processed_input_ids.size(0)
