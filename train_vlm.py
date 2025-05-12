@@ -91,6 +91,9 @@ def load_config(config_path: str):
     cfg.training.output_dir = cfg.training.output_dir.format(model_name=model_name)
     cfg.training.run_name   = cfg.training.run_name.format(model_name=model_name)
     cfg.training.logging_dir = cfg.training.logging_dir.format(model_name=model_name)
+    # Backward compatibility: allow config with only "data:" section
+    if "dataset" not in cfg and "data" in cfg:
+        cfg.dataset = cfg.data  # backward compatibility alias
     return cfg
 # ---------------------------------------------------------------------------- #
 # 4. Main training flow
@@ -115,16 +118,17 @@ def main():
     vision_processor = AutoProcessor.from_pretrained(cfg.model.vision_model_name)
     language_processor = deepcopy(model.tokenizer)
 
-    # Dataset
+    # Dataset -----------------------------------------------------------------
+    ds_cfg = cfg.dataset
     train_ds = VLMDataset(
-        data_path=cfg.dataset.data_path,
-        data_files=cfg.dataset.data_files,
-        image_placeholder=DEFAULT_IMAGE_TOKEN,
-        max_frames_num=cfg.dataset.max_frames_num,
-        fps=cfg.dataset.fps,
-        img_processor=vision_processor,
-        tokenizer=language_processor,
-        force_sample=cfg.dataset.force_sample
+        data_path           = ds_cfg.data_path,
+        data_files          = getattr(ds_cfg, "data_files", getattr(ds_cfg, "train_file", None)),
+        image_placeholder   = DEFAULT_IMAGE_TOKEN,
+        max_frames_num      = getattr(ds_cfg, "max_frames_num", 64),
+        fps                 = getattr(ds_cfg, "fps", 1),
+        img_processor       = vision_processor,
+        tokenizer           = language_processor,
+        force_sample        = getattr(ds_cfg, "force_sample", False),
     )
 
     # LORA
