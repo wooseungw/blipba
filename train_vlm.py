@@ -162,7 +162,7 @@ def main():
 
         num_train_epochs=cfg.training.num_train_epochs,
         per_device_train_batch_size=cfg.training.batch_size.train,
-        per_device_eval_batch_size=cfg.training.batch_size.eval,
+        
         gradient_accumulation_steps=cfg.training.gradient_accumulation_steps,
         gradient_checkpointing=cfg.training.gradient_checkpointing,
         learning_rate=cfg.training.learning_rate,
@@ -170,8 +170,9 @@ def main():
         warmup_ratio=cfg.training.warmup_ratio,
         dataloader_num_workers=cfg.training.dataloader_num_workers,
 
-        eval_strategy=cfg.training.eval_strategy,
-        eval_steps=cfg.training.eval_steps,
+        # per_device_eval_batch_size=cfg.training.batch_size.eval,
+        # eval_strategy=cfg.training.eval_strategy,
+        # eval_steps=cfg.training.eval_steps,
 
         save_strategy=cfg.training.save_strategy,
         save_steps=cfg.training.save_steps,
