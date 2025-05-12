@@ -32,7 +32,7 @@ class VisionLanguageConfig(PretrainedConfig):
         use_resampler: bool = False,
         compressor_type: Optional[str] = None,
         mm_spatial_pool_mode: str = "average",
-        mm_patch_merge_type: str = "maxpool2x2",
+        # mm_patch_merge_type: str = "maxpool2x2",
         mm_newline_position: str = "grid",
         max_num_patches: Optional[int] = None,
         num_image_tokens: int = 256,
@@ -60,7 +60,7 @@ class VisionLanguageConfig(PretrainedConfig):
 
         # Spatial pooling & patch merging
         self.mm_spatial_pool_mode = mm_spatial_pool_mode
-        self.mm_patch_merge_type = mm_patch_merge_type
+        # self.mm_patch_merge_type = mm_patch_merge_type
         self.mm_newline_position = mm_newline_position
         self.max_num_patches = max_num_patches
 
@@ -83,7 +83,7 @@ class VisionLanguageConfig(PretrainedConfig):
             "use_resampler": self.use_resampler,
             "compressor_type": self.compressor_type,
             "mm_spatial_pool_mode": self.mm_spatial_pool_mode,
-            "mm_patch_merge_type": self.mm_patch_merge_type,
+            # "mm_patch_merge_type": self.mm_patch_merge_type,
             "mm_newline_position": self.mm_newline_position,
             "max_num_patches": self.max_num_patches,
             "num_image_tokens": self.num_image_tokens,

@@ -188,17 +188,17 @@ class CustomVLMModel(PreTrainedModel):
         
         # CLS 토큰 처리 - 첫 번째 토큰은 제외
         has_cls_token = (num_tokens % 2 == 1)  # 14x14 + 1 = 197
-        
         if has_cls_token:
             # cls_token = features[:, 0:1, :]  # CLS 토큰 분리
             features = features[:, 1:, :]
         
         features = features.view(num_frames, height, weight, num_dim)
-        
+        print(f"feature 모양: {features.shape}")  # 디버깅
         if self.config.use_resampler:
             space_time_tokens = features.unsqueeze(0)
-        # print(f"feature 모양: {features.shape}")  # 디버깅
-        features = features.permute(0, 3, 1, 2)  # (B, d_v, H, W)
+            print(f"space_time_tokens 모양: {space_time_tokens.shape}")  # 디버깅
+        features = features.permute(0, 3, 1, 2).contiguous()  # (B, d_v, H, W)
+        print(f"feature 모양: {features.shape}")  # 디버깅
         if self.config.mm_spatial_pool_mode == "average":
             features = nn.functional.avg_pool2d(features, stride) 
         elif self.config.mm_spatial_pool_mode == "max":
@@ -209,16 +209,19 @@ class CustomVLMModel(PreTrainedModel):
             features = nn.functional.interpolate(features, size=scaled_shape, mode='bilinear') 
         else:
             raise ValueError(f"Unexpected mm_spatial_pool_mode: {self.config.mm_spatial_pool_mode}")
-        # print(f"pooling 후 feature 모양: {features.shape}")  # 디버깅
+        print(f"pooling 후 feature 모양: {features.shape}")  # 디버깅
         # (64, 3584, H, W) -> (64, 3584, H//stride, W//stride)
         features = features.permute(0, 2, 3, 1)
         # (64, H//stride, W//stride, 3584)
         features = features.view(num_frames, -1, num_dim)
         # print(f"feature 모양: {features.shape}")  # 디버깅
         if self.config.use_resampler:
-            features = features.squeeze(0)
+            print("resampler 사용")
+            features = features.unsqueeze(0)
+            print(f"feature.unsqueeze 모양: {features.shape}")  # 디버깅
             features = self.resampler(space_time_tokens, features)
             features = torch.squeeze(features, 0)
+            print(f"feature 모양: {features.shape}")  # 디버깅
         # print(f"feature 모양: {features.shape}")  # 디버깅
         return features  # (B, H//stride * W//stride, d_l)
         
@@ -371,7 +374,6 @@ class CustomVLMModel(PreTrainedModel):
                 # print(f"풀링 후 비전 임베딩 모양: {v_emb.shape}")            
             v_emb = self.newline_inserter(v_emb, self.image_newline) # (num_samples * N'+ New line tokens, d_l)
             v_embs[i] = v_emb
-            print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
         # print(f"조정된 이미지 임베딩 모양: {v_emb.shape}")  # 디버깅
         
         # 이미지 토큰 대체
@@ -379,10 +381,10 @@ class CustomVLMModel(PreTrainedModel):
         # processed_labels: (B, L)
         # attention_mask: (B, L)
         # v_embs: list[(num_samples * N'+ New line tokens, d_l),...]
-        print(f"전처리된 레이블 ID 모양: {processed_labels.shape}")  # 디버깅
-        print(f"전처리된 어텐션 마스크 모양: {attention_mask.shape}")
-        print(f"비전 임베딩 모양: {len(v_embs)},{v_embs[0].shape}")  # 디버깅
-        print("=================")  
+        # print(f"전처리된 레이블 ID 모양: {processed_labels.shape}")  # 디버깅
+        # print(f"전처리된 어텐션 마스크 모양: {attention_mask.shape}")
+        # print(f"비전 임베딩 모양: {len(v_embs)},{v_embs[0].shape}")  # 디버깅
+        # print("=================")  
         inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
             labels=processed_labels,
@@ -394,10 +396,10 @@ class CustomVLMModel(PreTrainedModel):
             max_length=self.config.language_config.max_position_embeddings,
             padding_side=self.tokenizer.padding_side,
         )
-        print(f"전처리된 입력 ID 모양: {inp_emb.shape}")  # 디버깅
-        print(f"전처리된 레이블 ID 모양: {pad_lbl.shape}")
-        print(f"전처리된 어텐션 마스크 모양: {pad_mask.shape}")
-        print(f"전처리된 포지션 ID 모양: {pos_ids.shape}")
+        # print(f"전처리된 입력 ID 모양: {inp_emb.shape}")  # 디버깅
+        # print(f"전처리된 레이블 ID 모양: {pad_lbl.shape}")
+        # print(f"전처리된 어텐션 마스크 모양: {pad_mask.shape}")
+        # print(f"전처리된 포지션 ID 모양: {pos_ids.shape}")
         return self.llm(
             inputs_embeds=inp_emb,
             attention_mask=pad_mask if attention_mask is not None else None,
