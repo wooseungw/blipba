@@ -13,7 +13,7 @@ from transformers import (
 from config import VisionLanguageConfig
 from projector import build_vision_projector
 from newline import NewlineTokenInserter
-from constant import (
+from src.constant import (
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
     DEFAULT_IMAGE_TOKEN,
@@ -81,9 +81,6 @@ class CustomVLMModel(PreTrainedModel):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "right"
         self._register_special_tokens()
-        
-
-
         # 7) Optional freezing ----------------------------------------------
         if getattr(config, "freeze_vision", True):
             self._freeze(self.vision_encoder)

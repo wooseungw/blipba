@@ -11,6 +11,7 @@ from transformers import (
     default_data_collator,
     AutoProcessor,
 )
+from copy import deepcopy
 from peft import LoraConfig, TaskType, get_peft_model
 
 from src.models.config import VisionLanguageConfig
@@ -72,101 +73,71 @@ class MultimodalCollator:
 # ---------------------------------------------------------------------------- #
 # 3. Argument Parser
 # ---------------------------------------------------------------------------- #
-def get_args():
-    parser = argparse.ArgumentParser(description="Train Custom VLM with images and videos")
-    # Backbone models
-    parser.add_argument("--vision_model_name", type=str, default="facebook/dino-vitb16")
-    parser.add_argument("--language_model_name", type=str, default="gpt2")
-    # Resampler and pooling
-    parser.add_argument("--use_resampler", action="store_true")
-    parser.add_argument("--mm_spatial_pool_mode", type=str, default="average")
-    parser.add_argument("--mm_patch_merge_type", type=str, default="maxpool2x2")
-    parser.add_argument("--max_num_patches", type=int, default=None)
-    # LoRA settings
-    parser.add_argument("--lora_r", type=int, default=16)
-    parser.add_argument("--lora_alpha", type=int, default=32)
-    parser.add_argument("--lora_dropout", type=float, default=0.05)
-    parser.add_argument(
-        "--target_modules", nargs='+', default=["q_proj","k_proj","v_proj","o_proj"]
-    )
-    # Training hyperparams
-    parser.add_argument("--output_dir", type=str, default="./vlm_output")
-    parser.add_argument("--deepspeed_config", type=str, default="deepspeed_config.json")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=2)
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=8)
-    parser.add_argument("--num_train_epochs", type=int, default=3)
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
-    parser.add_argument("--weight_decay", type=float, default=0.01)
-    parser.add_argument("--fp16", action="store_true")
-    # Data parameters
-    parser.add_argument("--video_frame_count", type=int, default=4)
-    parser.add_argument("--max_length", type=int, default=512)
-    args = parser.parse_args()
-    return args
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train BLIP-2 model with parameters from a YAML file")
+    parser.add_argument("--config", type=str, default="config/train.yaml", help="Path to the config file")
+    return parser.parse_args()
 
 # ---------------------------------------------------------------------------- #
 # 4. Main training flow
 # ---------------------------------------------------------------------------- #
 def main():
-    args = get_args()
+    config = parse_args()
     # Config & Processor
-    cfg = VisionLanguageConfig(
-        vision_model_name=args.vision_model_name,
-        language_model_name=args.language_model_name,
-        use_resampler=args.use_resampler,
-        mm_spatial_pool_mode=args.mm_spatial_pool_mode,
-        mm_patch_merge_type=args.mm_patch_merge_type,
-        max_num_patches=args.max_num_patches,
-    )
-    processor = AutoProcessor.from_pretrained(cfg.vision_model_name)
+    model_config = VisionLanguageConfig(
+        vision_model_name=config.model.vision_model_name,
+        language_model_name=config.model.language_model_name,
+        projector_type=config.model.projector_type,
+        use_resampler=config.model.use_resampler,
+        mm_spatial_pool_mode=config.model.mm_spatial_pool_mode,
+        mm_newline_position=config.model.mm_newline_position,
+        freeze_vision=config.model.freeze_vision,
+        freeze_llm=config.model.freeze_llm,
+                                  )
 
-    # Model + LoRA
-    model = CustomVLMModel(cfg, vision_dtype=torch.float16, llm_dtype=torch.float16)
-    peft_config = LoraConfig(
-        task_type=TaskType.CAUSAL_LM,
-        r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-        lora_dropout=args.lora_dropout,
-        target_modules=args.target_modules,
-    )
-    model = get_peft_model(model, peft_config)
-
+    
+    model = CustomVLMModel(model_config)
+    vision_processor = AutoProcessor.from_pretrained(config.model.vision_model_name)
+    language_processor = deepcopy(model.tokenizer)
+    
     # Dataset
-    samples = []  # Replace with your data loading logic
-    train_ds = MultimodalDataset(samples, processor, video_frame_count=args.video_frame_count)
-
-    # Trainer setup
-    collator = MultimodalCollator()
-    training_args = TrainingArguments(
-        output_dir=args['training']['output_dir'],
-        run_name=args['training']['run_name'],
-        num_train_epochs=args['training']['num_epochs'],
-        per_device_train_batch_size=args['training']['batch_size']['train'],
-        per_device_eval_batch_size=args['training']['batch_size']['eval'],
-        gradient_accumulation_steps=args['training'].get('gradient_accumulation_steps', 4),
-        gradient_checkpointing=args['training'].get('gradient_checkpointing', True),
-        learning_rate=float(args['training'].get('learning_rate', 2e-5)),
-        warmup_ratio=args['training'].get('warmup_ratio', 0.1),
-        weight_decay=args['training'].get('weight_decay', 0.01),
-        max_grad_norm=args['training'].get('max_grad_norm', 1.0),
-        dataloader_num_workers=args['training'].get('dataloader_num_workers', 0),
-        logging_dir=args['training']['logging_dir'],
-        logging_steps=args['training']['logging_steps'],
-        eval_strategy=args['training']['eval_strategy'],
-        eval_steps=args['training'].get('eval_steps', 500),
-        save_strategy=args['training']['save_strategy'],
-        save_steps=args['training'].get('save_steps', 500),
-        save_total_limit=args['training'].get('save_total_limit', 3),
-        save_optimizer=False,      # skip saving optimizer state to reduce checkpoint size
-        save_scheduler=False,      # skip saving scheduler state to reduce checkpoint size
-        load_best_model_at_end=args['training']['load_best_model_at_end'],
-        metric_for_best_model=args['training'].get('metric_for_best_model', 'eval_loss'),
-        greater_is_better=args['training'].get('greater_is_better', False),
-        fp16=True,  # DeepSpeed config에서 관리
-        deepspeed=args['deepspeed']['config'] if args['deepspeed']['enabled'] else None,
-        report_to=args['training']['report_to'],
-        save_only_model=True
+    train_ds = None #TODO
+    
+    # Training args
+    model_name = config.model.name
+    
+    lora_config = LoraConfig(
+    task_type=TaskType.SEQUENCE_CLASSIFICATION,
+    r=8,  # rank
+    lora_alpha=32,
+    lora_dropout=0.1
     )
+    
+    training_args = TrainingArguments(
+        output_dir=config.training,
+        run_name=config.training.run_name,
+        logging_dir=config.training.logging_dir,
+        deepspeed=config['deepspeed']['config'] if config['deepspeed']['enabled'] else None,
+        # Training
+        num_train_epochs=config.training.num_train_epochs,
+        per_device_train_batch_size=config.training.per_device_train_batch_size,
+        gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+        learning_rate=config.training.learning_rate,
+        weight_decay=config.training.weight_decay,
+        warmup_steps=config.training.warmup_steps,
+        # Evaluation
+        eval_strategy=config.training.eval_strategy,
+        per_device_eval_batch_size=config.training.per_device_eval_batch_size,
+        eval_steps=config.training.eval_steps,
+        
+        
+        save_strategy=config.training.save_strategy,
+        save_steps=config.training.save_steps,
+        save_total_limit=config.training.save_total_limit,
+        greater_is_better=config.training.greater_is_better,
+        report_to=config.training.report_to,
+    )
+    
 
     trainer = Trainer(
         model=model,

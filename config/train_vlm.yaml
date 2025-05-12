@@ -1,45 +1,36 @@
-# wandb 설정
-wandb:
-    project: "Surround360"
-    name: "blip2_360_training"
-
 # 모델 설정
 model:
-    name: "blip2"
-    vlm_cfg: "Salesforce/blip2-flan-t5-xxl" # 데이터 설정
+    name: "test"
+    vision_model_name: "google/siglip-so400m-patch14-384"
+    llm_model_name: "Qwen/Qwen3-8B-Base"
+    projector_type: "mlp2x_gelu"
+    use_resampler: true
+    mm_spatial_pool_mode: "average"
+    freeze_vision: true
+    freeze_llm: true
+
 data:
     dir: "data/quic360"
     train_file: "train.csv"
-    valid_file: "valid.csv"
-    image_size: [ 224, 224 ]
-    max_length: 256
-    do_crop: false
-    overlap_ratio: 0.5
-
-# deepspeed 설정
-deepspeed:
-    enabled: false
-    config: "config/zero.json"
 
 # 학습 설정
 training:
-    output_dir: "outputs/blip2_360"
-    run_name: "blip2_360_baseline"
-    num_epochs: 50
+    output_dir: "outputs/{model_name}"
+    run_name: "{model_name}_baseline"
+    num_train_epochs: 50
     batch_size:
         train: 64
         eval: 256
     gradient_accumulation_steps: 1 # 효과적인 배치 크기 16
     dataloader_num_workers: 16 # CPU 병렬 처리 추가
     gradient_checkpointing: true # 메모리 최적화
-
     # 학습률 및 최적화
     learning_rate: 2e-5
     warmup_ratio: 0.1 # warmup 단계 추가
     weight_decay: 0.01
 
     # 로깅 및 저장 설정
-    logging_dir: "logs/blip2_360"
+    logging_dir: "logs/{model_name}"
     logging_steps: 4 # 더 자주 로깅
     eval_strategy: "steps" # step 기반으로 변경
     eval_steps: 50 # 500 step마다 평가

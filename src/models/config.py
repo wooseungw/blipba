@@ -34,8 +34,6 @@ class VisionLanguageConfig(PretrainedConfig):
         mm_spatial_pool_mode: str = "average",
         # mm_patch_merge_type: str = "maxpool2x2",
         mm_newline_position: str = "grid",
-        max_num_patches: Optional[int] = None,
-        num_image_tokens: int = 256,
         freeze_vision: bool = True,
         freeze_llm: bool = True,
         **kwargs,
@@ -62,10 +60,9 @@ class VisionLanguageConfig(PretrainedConfig):
         self.mm_spatial_pool_mode = mm_spatial_pool_mode
         # self.mm_patch_merge_type = mm_patch_merge_type
         self.mm_newline_position = mm_newline_position
-        self.max_num_patches = max_num_patches
 
         # Prefix fusion
-        self.num_image_tokens = num_image_tokens
+        self.img_size = self.vision_config.image_size
 
         # Parameter freezing
         self.freeze_vision = freeze_vision
@@ -86,7 +83,7 @@ class VisionLanguageConfig(PretrainedConfig):
             # "mm_patch_merge_type": self.mm_patch_merge_type,
             "mm_newline_position": self.mm_newline_position,
             "max_num_patches": self.max_num_patches,
-            "num_image_tokens": self.num_image_tokens,
+            "img_size": self.img_size,
             "freeze_vision": self.freeze_vision,
             "freeze_llm": self.freeze_llm,
         }
