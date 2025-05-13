@@ -47,7 +47,7 @@ class CustomVLMModel(PreTrainedModel):
         self.vision_encoder = AutoModel.from_pretrained(
             config.vision_model_name,
             torch_dtype=vision_dtype,
-        ).to(vision_dtype)
+        ).to(vision_dtype).vision_model
         d_v = self.config.vision_config.hidden_size
         
         
