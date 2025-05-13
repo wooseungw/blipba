@@ -366,6 +366,8 @@ class CustomVLMModel(PreTrainedModel):
             pad_embeds.append(emb)
 
         pad_embeds = torch.stack(pad_embeds, dim=0)
+        print(f"pad_embeds 모양: {pad_embeds.shape}")  # 디버깅
+        print(f"pad_labels 모양: {pad_labels.shape}")  # 디버깅
         return pad_embeds, pad_labels, pad_mask, pos_ids
 
     def _prepare_multimodal_inputs(
