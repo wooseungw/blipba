@@ -39,9 +39,34 @@ def load_video(video_path, max_frames_num, fps=1, force_sample=False, img_proces
         spare_frames = spare_frames[:max_frames_num]
     return spare_frames, frame_time, video_time
 
+def load_video(video_path, max_frames_num, fps=1, force_sample=False, img_processor=None):
+    video_path = str(video_path)
+    if max_frames_num == 0:
+        return np.zeros((1, 336, 336, 3))
+    vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+    total_frame_num = len(vr)
+    video_time = total_frame_num / vr.get_avg_fps()
+    fps = round(vr.get_avg_fps() / fps)
+    frame_idx = [i for i in range(0, len(vr), fps)]
+    frame_time = [i / fps for i in frame_idx]
+    if len(frame_idx) > max_frames_num or force_sample:
+        sample_fps = max_frames_num
+        uniform_sampled_frames = np.linspace(0, total_frame_num - 1, sample_fps, dtype=int)
+        frame_idx = uniform_sampled_frames.tolist()
+        frame_time = [i / vr.get_avg_fps() for i in frame_idx]
+    frame_time = ",".join([f"{i:.2f}s" for i in frame_time])
+    spare_frames = vr.get_batch(frame_idx).asnumpy()
+    N, H, W, C = spare_frames.shape
+    if N < max_frames_num:
+        pad = np.zeros((max_frames_num - N, H, W, C), dtype=spare_frames.dtype)
+        spare_frames = np.concatenate([spare_frames, pad], axis=0)
+    elif N > max_frames_num:
+        spare_frames = spare_frames[:max_frames_num]
+    return spare_frames, frame_time, video_time
+
 class VLMDataset(Dataset):
     def __init__(
-        self, 
+        self,
         data_path: str = "DATAS/train/",
         data_files: Union[str, List[str], None] = None,
         image_placeholder: str = DEFAULT_IMAGE_TOKEN,
@@ -50,30 +75,20 @@ class VLMDataset(Dataset):
         img_processor: AutoProcessor = None,
         tokenizer: PreTrainedTokenizer = None,
         force_sample: bool = False,
-        ):
-        """
-        VLM Dataset for training and evaluation.
-
-        Args:
-            data_path (str): Path to the dataset file.
-            tokenizer: Tokenizer for encoding text.
-            image_placeholder (str): Placeholder for images in the text.
-            force_sample (bool): Whether to force uniform frame sampling.
-        """
+    ):
         root = Path(data_path)
         print(f"Loading data from {root}")
-        # --- JSON 파일 경로 수집 ------------------------------------------------
         if data_files is None:
-            json_paths = sorted(root.rglob("*.json"))           # ①
+            json_paths = sorted(root.rglob("*.json"))
         elif isinstance(data_files, str):
             candidate = root / data_files
-            if candidate.is_dir():                              # ②
+            if candidate.is_dir():
                 json_paths = sorted(candidate.rglob("*.json"))
-            elif candidate.suffix == ".json":                   # ③
+            elif candidate.suffix == ".json":
                 json_paths = [candidate]
             else:
                 raise ValueError(f"data_files 경로가 올바르지 않습니다: {candidate}")
-        elif isinstance(data_files, (list, tuple)):             # ④
+        elif isinstance(data_files, (list, tuple)):
             json_paths = [root / p for p in data_files]
         else:
             raise TypeError("data_files는 str, list[str], None만 허용됩니다.")
@@ -81,24 +96,20 @@ class VLMDataset(Dataset):
         if not json_paths:
             raise FileNotFoundError("주어진 경로에서 JSON 파일을 찾지 못했습니다.")
 
-        # --- JSON 로드 & 병합 ---------------------------------------------------
         self.data = []
         for p in json_paths:
             print(f"Loading {p}", end=" ")
             with open(p, "r") as f:
-                self.data.extend(json.load(f))   # 각 파일이 list[dict] 구조라고 가정
+                self.data.extend(json.load(f))
         print()
         print("length of dataset:", len(self.data))
-        # --- Filter out samples with missing video files -----------------------
+
         valid_data = []
         for entry in self.data:
             video_rel = entry.get("video", "")
             video_full = Path(data_path) / video_rel
             if video_full.is_file():
                 valid_data.append(entry)
-            else:
-                pass
-                # logging.warning(f"Missing video file, skipping sample: {video_full}")
         self.data = valid_data
         self.data_path = data_path
         self.max_frames_num = max_frames_num
@@ -107,66 +118,57 @@ class VLMDataset(Dataset):
         self.tokenizer = tokenizer
         self.image_placeholder = image_placeholder
         self.force_sample = force_sample
-        
-    def __len__(self): return len(self.data)
-    
-    def __getitem__(self, index) -> Dict[str, torch.Tensor | Dict]:
-        """
-        Returns a dictionary containing:
-            input_ids:       (seq_len,)          – token ids for the LLM
-            attention_mask:  (seq_len,)          – attention mask for the LLM
-            pixel_values:    (num_frames, C, H, W) – processed video frames for the vision encoder
-            video_path:      str                 – path to the raw video (optional downstream use)
-        """
-        # ---------- Video ----------
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index) -> Dict[str, Union[torch.Tensor, Dict]]:
         video_path = Path(self.data_path) / self.data[index]["video"]
         spare_frames, frame_time, video_time = self.get_video_samples(video_path)
 
-        # Process frames with the vision/image processor
         if self.img_processor is None:
             raise ValueError("`img_processor` must be provided.")
         pixel_values = self.img_processor(
             images=list(spare_frames), return_tensors="pt"
-        )["pixel_values"]  # shape: (num_frames, C, H, W)
+        )["pixel_values"]
 
-        # ---------- Text ----------
         conversations = self.data[index]["conversations"]
-
-        # 1) system message with video meta‑data
-        system_instruction = ("You are a helpful assistant."
-            f"Video length: {video_time:.2f}s. "
+        system_instruction = (
+            "You are a helpful assistant."
+            f" Video length: {video_time:.2f}s. "
             f"Selected frame timestamps: {frame_time}."
         )
         messages = [{"role": "system", "content": system_instruction}]
-
-        # 2) user ↔ assistant turns
         for convo in conversations:
             role = "user" if convo["from"] == "human" else "assistant"
             messages.append({"role": role, "content": convo["value"]})
 
-        # Tokenize with HF chat template
         if self.tokenizer is None:
             raise ValueError("`tokenizer` must be provided.")
-
         tokenized = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             return_tensors="pt",
-            return_assistant_tokens_mask = True,
+            return_assistant_tokens_mask=True,
             return_dict=True,
         )
-        input_ids =  tokenized["input_ids"].squeeze(0)
+        input_ids = tokenized["input_ids"].squeeze(0)
         attention_mask = tokenized["attention_mask"].squeeze(0)
-        
+        assistant_mask = tokenized["assistant_masks"].squeeze(0)
+
+        # ✅ 학습 라벨은 assistant 응답만 학습, 나머지는 -100
+        labels = input_ids.clone()
+        labels[assistant_mask == 0] = -100
+
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
+            "assistant_mask": assistant_mask,
+            "labels": labels,
             "pixel_values": pixel_values,
             "video_path": str(video_path),
         }
-    """
-    'conversations': [{'from': 'human', 'value': '<image>\nWhy is the blue sweater guy looking at the shirtless men?\nOptions:\nA. sharing with his friends.\nB. found the man funny.\nC. poor vision.\nD. keep hands warm.\nE. training.\nPlease provide your answer by stating the letter followed by the full option.'}, {'from': 'gpt', 'value': 'E. training.'}]
-    """
+
     def get_video_samples(self, video_path):
         return load_video(
             video_path,
