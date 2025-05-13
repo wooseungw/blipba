@@ -44,10 +44,15 @@ class CustomVLMModel(PreTrainedModel):
         self.vision_dtype = vision_dtype
         self.llm_dtype    = llm_dtype
         # 1) Vision encoder --------------------------------------------------
-        self.vision_encoder = AutoModel.from_pretrained(
+        vision_model = AutoModel.from_pretrained(
             config.vision_model_name,
             torch_dtype=vision_dtype,
-        ).to(vision_dtype).vision_model
+        ).to(vision_dtype)
+        # Check if vision_model attribute exists
+        if hasattr(vision_model, 'vision_model'):
+            self.vision_encoder = vision_model.vision_model
+        else:
+            self.vision_encoder = vision_model
         d_v = self.config.vision_config.hidden_size
         
         
