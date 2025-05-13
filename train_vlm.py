@@ -52,30 +52,64 @@ class CopyProcessorCallback(TrainerCallback):
 # 2. Collator
 # ---------------------------------------------------------------------------- #
 class MultimodalCollator:
-    def __init__(self, data_collator=default_data_collator):
-        self.data_collator = data_collator
-
+    def __init__(self, tokenizer=None, pad_token_id=0):
+        self.tokenizer = tokenizer
+        # 토크나이저가 제공된 경우 해당 pad_token_id 사용
+        self.pad_token_id = tokenizer.pad_token_id if tokenizer is not None else pad_token_id
+    
     def __call__(self, features):
-        # Extract all components from features
-        # Check if pixel_values is 5D (batch, frames, channels, height, width)
-        # print("features[0]['pixel_values'].shape:", features[0]['pixel_values'].shape)
-        _ ,c, h, w = features[0]['pixel_values'].shape
-        pixel_values = torch.stack([f['pixel_values'] for f in features]).reshape(-1, c, h, w)
-            
-            
+        # 1. 비디오 프레임 처리 (pixel_values)
+        # 프레임 차원 구조 확인 및 배치 구성
+        frames, c, h, w = features[0]['pixel_values'].shape
+        pixel_values = torch.stack([f['pixel_values'] for f in features])
+        
+        # 2. 텍스트 데이터 패딩 및 처리
+        # 최대 길이 계산
+        max_length = max(f['input_ids'].size(0) for f in features)
+        
+        # 패딩된 배치 텐서 초기화
+        batch_size = len(features)
+        input_ids = torch.full((batch_size, max_length), 
+                               self.pad_token_id, 
+                               dtype=features[0]['input_ids'].dtype,
+                               device=features[0]['input_ids'].device)
+        attention_mask = torch.zeros((batch_size, max_length), 
+                                    dtype=features[0]['attention_mask'].dtype,
+                                    device=features[0]['attention_mask'].device)
+        
+        # 각 샘플에 대해 패딩 적용
+        for i, f in enumerate(features):
+            input_len = f['input_ids'].size(0)
+            input_ids[i, :input_len] = f['input_ids']
+            attention_mask[i, :input_len] = f['attention_mask']
+        
+        # 기본 배치 구성
         batch = {
             'pixel_values': pixel_values,
-            'input_ids': torch.stack([f['input_ids'] for f in features]),
-            'attention_mask': torch.stack([f['attention_mask'] for f in features]),
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
         }
-        # Stack the labels and handle padding
+        
+        # 3. 라벨 처리 (존재하는 경우)
         if 'labels' in features[0]:
-            labels = torch.stack([f['labels'] for f in features])
-            # Apply -100 masking to padding tokens in labels
-            # This ensures padding tokens are ignored in the loss calculation
-            padding_mask = batch['attention_mask'] == 0
-            labels[padding_mask] = -100
+            # 기본적으로 -100으로 초기화된 라벨 텐서 생성
+            labels = torch.full((batch_size, max_length), 
+                               -100,  # IGNORE_INDEX
+                               dtype=features[0]['labels'].dtype,
+                               device=features[0]['labels'].device)
+            
+            # 각 샘플의 라벨 복사
+            for i, f in enumerate(features):
+                label_len = f['labels'].size(0)
+                labels[i, :label_len] = f['labels']
+                
+            # 주의: 라벨은 이미 -100으로 마스킹되어 있으므로 
+            # 추가 패딩 마스킹은 필요하지 않음
             batch['labels'] = labels
+        
+        # 4. 비텐서 데이터 처리 (경로 등)
+        if 'video_path' in features[0]:
+            batch['video_path'] = [f['video_path'] for f in features]
         
         return batch
 
