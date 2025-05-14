@@ -14,7 +14,7 @@ DEFAULT_IM_END_TOKEN = "<im_end>"
 class CaptioningVLM(CustomVLMModel):
     """Vision-Language model with automatic captioning of video features."""
 
-    def __init__(self, **kwargs):
+    def __init__(self,  **kwargs):
         super().__init__( **kwargs)
         # Additional initialization if needed
         self.system_instruction = "You are a helpful assistant."
@@ -187,20 +187,17 @@ class CaptioningVLM(CustomVLMModel):
             if self.config.mm_spatial_pool_mode != "none":
                 v_emb = self._get_2dPool(v_emb, stride=2)
                 
-            # 5. 먼저 원본 특징에 그리드 기반 줄바꿈 토큰 삽입
-            v_emb_with_newlines = self.newline_inserter(v_emb, self.image_newline)
-                
-            # 6. 각 비디오 샘플에 대한 캡션 생성
+            # 5. 각 비디오 샘플에 대한 캡션 생성
             caption_embeds_list, outputs_list = self._generate_captions_for_features(v_emb)
-                
-            # 7. 줄바꿈 토큰이 삽입된 특징과 캡션 인터리빙
-            # 주의: 이미 줄바꿈 토큰이 삽입된 특징을 사용
-            v_emb = self._interleave_features_and_captions(v_emb_with_newlines, caption_embeds_list)
             
-            # 8. 더 이상 여기서 줄바꿈 토큰을 삽입하지 않음
+            # 6. 비주얼 특징과 캡션 인터리빙
+            v_emb = self._interleave_features_and_captions(v_emb, caption_embeds_list)
+            
+            # 7. 줄바꿈 토큰 삽입
+            v_emb = self.newline_inserter(v_emb, self.image_newline)
             v_embs[i] = v_emb
         
-        # 9. 이미지 토큰 대체
+        # 8. 이미지 토큰 대체
         inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
             labels=processed_labels,

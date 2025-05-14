@@ -15,6 +15,7 @@ def add_token_per_grid(image_feature: torch.Tensor, image_newline: nn.Parameter)
     Returns:
         Tensor with newline tokens added at grid positions
     """
+    
     num_frames = image_feature.shape[0]
     resize_h = int(math.sqrt(image_feature.shape[1]))
     feature_dim = image_feature.shape[-1]
