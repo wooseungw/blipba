@@ -14,8 +14,8 @@ DEFAULT_IM_END_TOKEN = "<im_end>"
 class CaptioningVLM(CustomVLMModel):
     """Vision-Language model with automatic captioning of video features."""
 
-    def __init__(self,  **kwargs):
-        super().__init__( **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         # Additional initialization if needed
         self.system_instruction = "You are a helpful assistant."
         self.captioning_instruction = "Generate a short descriptive caption for this visual content."
@@ -99,7 +99,6 @@ class CaptioningVLM(CustomVLMModel):
                 caption_text = self.tokenizer.decode(caption_only_ids[0], skip_special_tokens=True)
                 # print(f"샘플 {b+1} 생성된 캡션: {caption_text}")
             else:
-                # print(f"샘플 {b+1}에서 충분한 토큰이 생성되지 않았습니다. 더미 캡션 사용.")
                 caption_text = "A visual scene with various elements."
                 caption_only_ids = self.tokenizer(
                     caption_text, return_tensors="pt"
@@ -159,7 +158,8 @@ class CaptioningVLM(CustomVLMModel):
         
         # 배치 차원으로 스택
         return torch.stack(padded_features)
-
+    
+    
     def _prepare_multimodal_inputs(
         self,
         pixel_values: torch.FloatTensor,
