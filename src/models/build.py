@@ -13,8 +13,8 @@ from transformers import (
 from .config import VisionLanguageConfig
 from .projector import build_vision_projector
 from .newline import NewlineTokenInserter
-from .resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
-from src.constant import (
+# from .resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
+from .constant import (
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
     DEFAULT_IMAGE_TOKEN,
@@ -428,7 +428,7 @@ class CustomVLMModel(PreTrainedModel):
             attention_mask=attention_mask,
             labels=labels
         )
-        
+        inp_emb.requires_grad()
         # LLM 모델 호출
         return self.llm(
             inputs_embeds=inp_emb,
