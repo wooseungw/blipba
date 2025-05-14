@@ -9,7 +9,7 @@ from transformers import (
 )
 from copy import deepcopy
 from peft import LoraConfig, TaskType, get_peft_model
-from transformers import TrainerCallback
+from transformers import TrainerCallback, AutoTokenizer
 import yaml
 from omegaconf import OmegaConf
 from types import SimpleNamespace
@@ -18,8 +18,14 @@ from src.dataset import VLMDataset
 from src.models.config import VisionLanguageConfig
 from src.models.build import CustomVLMModel
 from src.models.captionvlm import CaptioningVLM
-from src.models.constant import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
-
+from src.models.constant import (
+    IGNORE_INDEX,
+    IMAGE_TOKEN_INDEX,
+    DEFAULT_IMAGE_TOKEN,
+    DEFAULT_IMAGE_PATCH_TOKEN,
+    DEFAULT_IM_START_TOKEN,
+    DEFAULT_IM_END_TOKEN,
+)
 # ---------------------------------------------------------------------------- #
 # 0. Prompt Formatter
 # ---------------------------------------------------------------------------- #
@@ -169,11 +175,30 @@ def main():
         freeze_vision=cfg.model.freeze_vision,
         freeze_llm=cfg.model.freeze_llm,
     )
+    # Config & Processor
+    vision_processor = AutoProcessor.from_pretrained(cfg.model.vision_model_name)
+    language_processor = AutoTokenizer.from_pretrained(cfg.model.llm_model_name)
+
+    # 토크나이저에 특수 토큰 추가
+    if language_processor.pad_token is None:
+        language_processor.pad_token = language_processor.eos_token
+    language_processor.padding_side = "right"
+
+    # 특수 토큰 추가
+    special_tokens = {"additional_special_tokens": [
+        DEFAULT_IMAGE_TOKEN,
+        DEFAULT_IMAGE_PATCH_TOKEN, 
+        DEFAULT_IM_START_TOKEN,
+        DEFAULT_IM_END_TOKEN,
+    ]}
+    language_processor.add_special_tokens(special_tokens)
+    
+    
 
     # Load the model
-    model = CaptioningVLM(model_config)
+    model = CaptioningVLM(model_config, language_processor)
     vision_processor = AutoProcessor.from_pretrained(cfg.model.vision_model_name)
-    language_processor = deepcopy(model.tokenizer)
+
 
     # Dataset -----------------------------------------------------------------
     ds_cfg = cfg.dataset

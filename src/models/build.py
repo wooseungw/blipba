@@ -35,6 +35,7 @@ class CustomVLMModel(PreTrainedModel):
     def __init__(
         self,
         config: VisionLanguageConfig,
+        tokenizer: Optional[AutoTokenizer] = None,
         *,
         vision_dtype: torch.dtype = torch.float16, 
         llm_dtype: torch.dtype = torch.float16
@@ -80,7 +81,7 @@ class CustomVLMModel(PreTrainedModel):
         self.newline_inserter = NewlineTokenInserter(config)
 
         # 5) Tokenizer & special tokens -------------------------------------
-        self.tokenizer = AutoTokenizer.from_pretrained(config.language_model_name)
+        self.tokenizer = tokenizer
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "right"
