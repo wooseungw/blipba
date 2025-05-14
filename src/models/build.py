@@ -200,11 +200,22 @@ class CustomVLMModel(PreTrainedModel):
     # VISION → PROJECTOR
     # ------------------------------------------------------------------ #
     def _get_vision_embeds(self, pixel_values: torch.FloatTensor) -> torch.FloatTensor:
-        """Vision encoder → (optional) resampler → projector → LLM‑space embeds."""
-        v_feat = self.vision_encoder(pixel_values=pixel_values).last_hidden_state  # (B*num_frames,N,d_v)
-        v_emb = self.projector(v_feat)  # (B*num_frames,N',d_l)
-        # print(f"비전 임베딩 모양: {v_emb.shape}")  # 디버깅
-        return v_emb  # (B*num_frames,N',d_l)
+        """Vision encoder → (optional) resampler → projector → LLM‑space embeds.
+        Handles both 4D (B, C, H, W) and 5D (B, T, C, H, W) inputs.
+        """
+        # Check if input is 5D (batch, frames, channels, height, width)
+        is_video = pixel_values.dim() == 5
+        
+        if is_video:
+            B, T, C, H, W = pixel_values.shape
+            # Reshape to (B*T, C, H, W) for vision encoder
+            pixel_values = pixel_values.view(B * T, C, H, W)
+        
+        # Process through vision encoder
+        v_feat = self.vision_encoder(pixel_values=pixel_values).last_hidden_state  # (B*T, N, d_v)
+        v_emb = self.projector(v_feat)  # (B*T, N', d_l)
+        
+        return v_emb  # (B*T, N', d_l)
     
     def _get_2dPool(self, features: torch.FloatTensor, stride: int = 2):
         """ViT patch token을 2‑D grid 로 reshape 후 pooling."""
