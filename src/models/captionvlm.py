@@ -83,7 +83,7 @@ class CaptioningVLM(CustomVLMModel):
                     num_beams=3,        # 빔 수 증가
                     early_stopping=True,
                     do_sample=True,     # 샘플링 활성화
-                    temperature=0.7,    # 약간 낮은 온도
+                    temperature=0.4,    # 약간 낮은 온도
                     top_p=0.9,
                     return_dict_in_generate=True,
                 )
@@ -97,9 +97,9 @@ class CaptioningVLM(CustomVLMModel):
             if outputs.sequences.shape[1] > prompt_len + 1:  # +1은 시작 토큰
                 caption_only_ids = outputs.sequences[:, prompt_len + 1:]
                 caption_text = self.tokenizer.decode(caption_only_ids[0], skip_special_tokens=True)
-                print(f"샘플 {b+1} 생성된 캡션: {caption_text}")
+                # print(f"샘플 {b+1} 생성된 캡션: {caption_text}")
             else:
-                print(f"샘플 {b+1}에서 충분한 토큰이 생성되지 않았습니다. 더미 캡션 사용.")
+                # print(f"샘플 {b+1}에서 충분한 토큰이 생성되지 않았습니다. 더미 캡션 사용.")
                 caption_text = "A visual scene with various elements."
                 caption_only_ids = self.tokenizer(
                     caption_text, return_tensors="pt"
