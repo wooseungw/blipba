@@ -14,8 +14,8 @@ DEFAULT_IM_END_TOKEN = "<im_end>"
 class CaptioningVLM(CustomVLMModel):
     """Vision-Language model with automatic captioning of video features."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, config, **kwargs):
+        super().__init__(config, **kwargs)
         # Additional initialization if needed
         self.system_instruction = "You are a helpful assistant."
         self.captioning_instruction = "Generate a short descriptive caption for this visual content."
@@ -115,58 +115,31 @@ class CaptioningVLM(CustomVLMModel):
 
     def _interleave_features_and_captions(self, v_emb, caption_embeds_list):
         """비주얼 특징과 캡션을 인터리빙하는 메서드"""
-        # v_emb의 형태 확인
-        if v_emb.dim() == 2:
-            # 이미 newline_inserter에 의해 처리된 2D 텐서 (frames*something, dim)
-            # 배치 차원이 없으므로 직접 처리
-            num_features, dim = v_emb.shape
-            batch_size = 1  # 배치 크기가 1이라고 가정
-            
-            # 각 샘플에 대해 특징과 캡션을 인터리빙
-            interleaved = []
+        batch_size, v_seq_len, dim = v_emb.shape
+        
+        # 각 샘플에 대해 특징과 캡션을 인터리빙
+        interleaved_features = []
+        
+        for b in range(batch_size):
+            sample_features = v_emb[b]
+            sample_caption = caption_embeds_list[b]
             
             # 비주얼 특징을 4개 청크로 분할
-            chunk_size = num_features // 4
+            chunk_size = v_seq_len // 4
+            interleaved = []
             
-            for i in range(0, num_features, chunk_size):
-                end = min(i + chunk_size, num_features)
+            for i in range(0, v_seq_len, chunk_size):
+                end = min(i + chunk_size, v_seq_len)
                 # 현재 청크의 비주얼 특징 추가
-                interleaved.append(v_emb[i:end])
+                interleaved.append(sample_features[i:end])
                 
                 # 마지막 청크가 아니면 현재 위치에 캡션 추가
-                if end < num_features:
-                    interleaved.append(caption_embeds_list[0])  # 배치 크기가 1이므로 첫 번째 캡션 사용
+                if end < v_seq_len:
+                    interleaved.append(sample_caption)
             
             # 인터리빙된 특징을 하나로 결합
-            interleaved_features = [torch.cat(interleaved, dim=0)]
-        
-        else:
-            # 원래 구현 (3D 텐서용)
-            batch_size, v_seq_len, dim = v_emb.shape
-            
-            # 각 샘플에 대해 특징과 캡션을 인터리빙
-            interleaved_features = []
-            
-            for b in range(batch_size):
-                sample_features = v_emb[b]
-                sample_caption = caption_embeds_list[b]
-                
-                # 비주얼 특징을 4개 청크로 분할
-                chunk_size = v_seq_len // 4
-                interleaved = []
-                
-                for i in range(0, v_seq_len, chunk_size):
-                    end = min(i + chunk_size, v_seq_len)
-                    # 현재 청크의 비주얼 특징 추가
-                    interleaved.append(sample_features[i:end])
-                    
-                    # 마지막 청크가 아니면 현재 위치에 캡션 추가
-                    if end < v_seq_len:
-                        interleaved.append(sample_caption)
-                
-                # 인터리빙된 특징을 하나로 결합
-                interleaved_sample = torch.cat(interleaved, dim=0)
-                interleaved_features.append(interleaved_sample)
+            interleaved_sample = torch.cat(interleaved, dim=0)
+            interleaved_features.append(interleaved_sample)
         
         # 배치 내 모든 샘플이 동일한 길이를 갖도록 패딩
         max_length = max(feat.shape[0] for feat in interleaved_features)
@@ -177,7 +150,7 @@ class CaptioningVLM(CustomVLMModel):
             if current_length < max_length:
                 # 패딩 추가
                 padding = torch.zeros(max_length - current_length, dim, 
-                                    device=feat.device, dtype=feat.dtype)
+                                     device=feat.device, dtype=feat.dtype)
                 padded = torch.cat([feat, padding], dim=0)
             else:
                 padded = feat
@@ -185,7 +158,7 @@ class CaptioningVLM(CustomVLMModel):
         
         # 배치 차원으로 스택
         return torch.stack(padded_features)
-    
+
     def _prepare_multimodal_inputs(
         self,
         pixel_values: torch.FloatTensor,
@@ -213,16 +186,14 @@ class CaptioningVLM(CustomVLMModel):
             if self.config.mm_spatial_pool_mode != "none":
                 v_emb = self._get_2dPool(v_emb, stride=2)
                 
-            # 5. 먼저 원본 특징에 그리드 기반 줄바꿈 토큰 삽입
-            v_emb_with_newlines = self.newline_inserter(v_emb, self.image_newline)
-                
-            # 6. 각 비디오 샘플에 대한 캡션 생성
+            # 5. 각 비디오 샘플에 대한 캡션 생성
             caption_embeds_list, outputs_list = self._generate_captions_for_features(v_emb)
-                
-            # 7. 줄바꿈 토큰이 삽입된 특징과 캡션 인터리빙
-            v_emb = self._interleave_features_and_captions(v_emb_with_newlines, caption_embeds_list)
             
-            # 더 이상 newline 토큰 추가 삽입 안함
+            # 6. 비주얼 특징과 캡션 인터리빙
+            v_emb = self._interleave_features_and_captions(v_emb, caption_embeds_list)
+            
+            # 7. 줄바꿈 토큰 삽입
+            v_emb = self.newline_inserter(v_emb, self.image_newline)
             v_embs[i] = v_emb
         
         # 8. 이미지 토큰 대체
