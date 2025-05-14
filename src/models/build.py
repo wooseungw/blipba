@@ -36,11 +36,11 @@ class CustomVLMModel(PreTrainedModel):
         self,
         config: VisionLanguageConfig,
         tokenizer: Optional[AutoTokenizer] = None,
-        *,
         vision_dtype: torch.dtype = torch.float16, 
-        llm_dtype: torch.dtype = torch.float16
+        llm_dtype: torch.dtype = torch.float16,
+        **kwargs,
         ) -> None:
-        super().__init__(config)
+        super().__init__(config, **kwargs)
         self.config = config
         self.vision_dtype = vision_dtype
         self.llm_dtype    = llm_dtype
