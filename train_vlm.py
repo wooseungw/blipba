@@ -250,7 +250,6 @@ def main():
         train_dataset=train_ds,
         data_collator=data_collator,
         tokenizer=model.tokenizer,
-        label_names=["labels"]
     )
     # 콜백 추가 - 인자 이름에 주의!
     trainer.add_callback(CopyProcessorCallback(
