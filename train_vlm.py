@@ -192,12 +192,12 @@ def main():
         DEFAULT_IM_END_TOKEN,
     ]}
     language_processor.add_special_tokens(special_tokens)
-    
+    # Load the model
+    model = CaptioningVLM(config = model_config, 
+                          AutoTokenizer = language_processor)
+
     
 
-    # Load the model
-    model = CaptioningVLM(model_config, language_processor)
-    vision_processor = AutoProcessor.from_pretrained(cfg.model.vision_model_name)
 
 
     # Dataset -----------------------------------------------------------------

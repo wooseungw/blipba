@@ -14,8 +14,8 @@ DEFAULT_IM_END_TOKEN = "<im_end>"
 class CaptioningVLM(CustomVLMModel):
     """Vision-Language model with automatic captioning of video features."""
 
-    def __init__(self, config, **kwargs):
-        super().__init__(config, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__( **kwargs)
         # Additional initialization if needed
         self.system_instruction = "You are a helpful assistant."
         self.captioning_instruction = "Generate a short descriptive caption for this visual content."
