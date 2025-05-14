@@ -429,7 +429,7 @@ class CustomVLMModel(PreTrainedModel):
             attention_mask=attention_mask,
             labels=labels
         )
-        inp_emb.requires_grad()
+        inp_emb.requires_grad_()
         # LLM 모델 호출
         return self.llm(
             inputs_embeds=inp_emb,
