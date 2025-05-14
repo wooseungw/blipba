@@ -42,25 +42,22 @@ def create_input_with_template(instruction, tokenizer, image_placeholder=DEFAULT
     return inputs
 
 class CopyProcessorCallback(TrainerCallback):
-    def __init__(self, vision_processor, model, tokenizer):
+    def __init__(self, vision_processor, language_processor, model):
         self.vision_processor = vision_processor
+        self.language_processor = language_processor
         self.model = model
-        self.tokenizer = tokenizer  # 토크나이저 추가
 
     def on_save(self, args, state, control, **kwargs):
         ckpt_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
         
-        # 비전 프로세서 저장
+        # 1. 먼저 토크나이저 저장 (특수 토큰 정보 포함됨)
+        self.language_processor.save_pretrained(ckpt_dir)
+        
+        # 2. 비전 프로세서 저장
         self.vision_processor.save_pretrained(ckpt_dir)
         
-        # 커스텀 토크나이저 저장 (수정된 특수 토큰 포함)
-        if self.tokenizer is not None:
-            # 토크나이저를 저장할 때 special_tokens_map.json, tokenizer_config.json 등도 함께 저장됨
-            self.tokenizer.save_pretrained(ckpt_dir)
-            
-        # LoRA 모델 설정 저장
-        if self.model is not None:
-            self.model.save_pretrained(ckpt_dir)
+        # 3. LoRA 어댑터 저장
+        self.model.save_pretrained(ckpt_dir)
 # ---------------------------------------------------------------------------- #
 # 2. Collator
 # ---------------------------------------------------------------------------- #
@@ -203,6 +200,12 @@ def main():
         target_modules  = lora_target_modules,
         bias            = "none"
     )
+    # 이미 로드된 토크나이저를 명시적 디렉토리에 저장
+    tokenizer_save_dir = os.path.join(training_args.output_dir, "tokenizer")
+    os.makedirs(tokenizer_save_dir, exist_ok=True)
+    language_processor.save_pretrained(tokenizer_save_dir)
+
+    # PEFT 모델 생성 (이 지점에서 토크나이저가 이미 저장되어 있음)
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
