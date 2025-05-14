@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from src.dataset import VLMDataset
 from src.models.config import VisionLanguageConfig
 from src.models.build import CustomVLMModel
-from src.constant import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
+from src.models.constant import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
 # ---------------------------------------------------------------------------- #
 # 0. Prompt Formatter
@@ -42,12 +42,26 @@ def create_input_with_template(instruction, tokenizer, image_placeholder=DEFAULT
     return inputs
 
 class CopyProcessorCallback(TrainerCallback):
-    def __init__(self, vision_processor):
+    def __init__(self, vision_processor, model=None, language_processor=None):
         self.vision_processor = vision_processor
+        self.language_processor = language_processor
+        self.model = model
 
     def on_save(self, args, state, control, **kwargs):
         ckpt_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
-
+        
+        # 비전 프로세서 저장
+        if self.vision_processor is not None:
+            self.vision_processor.save_pretrained(ckpt_dir)
+            
+        # 언어 프로세서(토크나이저) 저장
+        if self.language_processor is not None:
+            self.language_processor.save_pretrained(ckpt_dir)
+        
+        # PEFT 모델의 LoRA 설정 저장
+        if self.model is not None and hasattr(self.model, "save_pretrained"):
+            # adapter_config.json 등 LoRA 설정이 저장됨
+            self.model.save_pretrained(ckpt_dir)
 # ---------------------------------------------------------------------------- #
 # 2. Collator
 # ---------------------------------------------------------------------------- #
@@ -235,7 +249,11 @@ def main():
         data_collator=data_collator,
         tokenizer=model.tokenizer
     )
-    trainer.add_callback(CopyProcessorCallback(vision_processor))
+    trainer.add_callback(CopyProcessorCallback(
+    vision_processor=vision_processor, 
+    model=model, 
+    language_processor=language_processor
+    ))
     trainer.train()
     merged_model = model.merge_and_unload()   # FP16/full‑precision 가정
     
