@@ -187,14 +187,16 @@ class CaptioningVLM(CustomVLMModel):
             if self.config.mm_spatial_pool_mode != "none":
                 v_emb = self._get_2dPool(v_emb, stride=2)
                 
-            # 5. 각 비디오 샘플에 대한 캡션 생성
+            # 5. 먼저 원본 특징에 그리드 기반 줄바꿈 토큰 삽입
+            v_emb_with_newlines = self.newline_inserter(v_emb, self.image_newline)
+                
+            # 6. 각 비디오 샘플에 대한 캡션 생성
             caption_embeds_list, outputs_list = self._generate_captions_for_features(v_emb)
+                
+            # 7. 줄바꿈 토큰이 삽입된 특징과 캡션 인터리빙
+            v_emb = self._interleave_features_and_captions(v_emb_with_newlines, caption_embeds_list)
             
-            # 6. 비주얼 특징과 캡션 인터리빙
-            v_emb = self._interleave_features_and_captions(v_emb, caption_embeds_list)
-            
-            # 7. 줄바꿈 토큰 삽입
-            v_emb = self.newline_inserter(v_emb, self.image_newline)
+            # 더 이상 newline 토큰 추가 삽입 안함
             v_embs[i] = v_emb
         
         # 8. 이미지 토큰 대체
