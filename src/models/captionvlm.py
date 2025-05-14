@@ -115,31 +115,58 @@ class CaptioningVLM(CustomVLMModel):
 
     def _interleave_features_and_captions(self, v_emb, caption_embeds_list):
         """비주얼 특징과 캡션을 인터리빙하는 메서드"""
-        batch_size, v_seq_len, dim = v_emb.shape
-        
-        # 각 샘플에 대해 특징과 캡션을 인터리빙
-        interleaved_features = []
-        
-        for b in range(batch_size):
-            sample_features = v_emb[b]
-            sample_caption = caption_embeds_list[b]
+        # v_emb의 형태 확인
+        if v_emb.dim() == 2:
+            # 이미 newline_inserter에 의해 처리된 2D 텐서 (frames*something, dim)
+            # 배치 차원이 없으므로 직접 처리
+            num_features, dim = v_emb.shape
+            batch_size = 1  # 배치 크기가 1이라고 가정
             
-            # 비주얼 특징을 4개 청크로 분할
-            chunk_size = v_seq_len // 4
+            # 각 샘플에 대해 특징과 캡션을 인터리빙
             interleaved = []
             
-            for i in range(0, v_seq_len, chunk_size):
-                end = min(i + chunk_size, v_seq_len)
+            # 비주얼 특징을 4개 청크로 분할
+            chunk_size = num_features // 4
+            
+            for i in range(0, num_features, chunk_size):
+                end = min(i + chunk_size, num_features)
                 # 현재 청크의 비주얼 특징 추가
-                interleaved.append(sample_features[i:end])
+                interleaved.append(v_emb[i:end])
                 
                 # 마지막 청크가 아니면 현재 위치에 캡션 추가
-                if end < v_seq_len:
-                    interleaved.append(sample_caption)
+                if end < num_features:
+                    interleaved.append(caption_embeds_list[0])  # 배치 크기가 1이므로 첫 번째 캡션 사용
             
             # 인터리빙된 특징을 하나로 결합
-            interleaved_sample = torch.cat(interleaved, dim=0)
-            interleaved_features.append(interleaved_sample)
+            interleaved_features = [torch.cat(interleaved, dim=0)]
+        
+        else:
+            # 원래 구현 (3D 텐서용)
+            batch_size, v_seq_len, dim = v_emb.shape
+            
+            # 각 샘플에 대해 특징과 캡션을 인터리빙
+            interleaved_features = []
+            
+            for b in range(batch_size):
+                sample_features = v_emb[b]
+                sample_caption = caption_embeds_list[b]
+                
+                # 비주얼 특징을 4개 청크로 분할
+                chunk_size = v_seq_len // 4
+                interleaved = []
+                
+                for i in range(0, v_seq_len, chunk_size):
+                    end = min(i + chunk_size, v_seq_len)
+                    # 현재 청크의 비주얼 특징 추가
+                    interleaved.append(sample_features[i:end])
+                    
+                    # 마지막 청크가 아니면 현재 위치에 캡션 추가
+                    if end < v_seq_len:
+                        interleaved.append(sample_caption)
+                
+                # 인터리빙된 특징을 하나로 결합
+                interleaved_sample = torch.cat(interleaved, dim=0)
+                interleaved_features.append(interleaved_sample)
         
         # 배치 내 모든 샘플이 동일한 길이를 갖도록 패딩
         max_length = max(feat.shape[0] for feat in interleaved_features)
@@ -150,7 +177,7 @@ class CaptioningVLM(CustomVLMModel):
             if current_length < max_length:
                 # 패딩 추가
                 padding = torch.zeros(max_length - current_length, dim, 
-                                     device=feat.device, dtype=feat.dtype)
+                                    device=feat.device, dtype=feat.dtype)
                 padded = torch.cat([feat, padding], dim=0)
             else:
                 padded = feat
@@ -158,7 +185,6 @@ class CaptioningVLM(CustomVLMModel):
         
         # 배치 차원으로 스택
         return torch.stack(padded_features)
-    
     
     def _prepare_multimodal_inputs(
         self,
