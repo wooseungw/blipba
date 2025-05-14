@@ -42,22 +42,26 @@ def create_input_with_template(instruction, tokenizer, image_placeholder=DEFAULT
     return inputs
 
 class CopyProcessorCallback(TrainerCallback):
-    def __init__(self, vision_processor, language_processor, model):
+    def __init__(self, vision_processor, tokenizer, model):
         self.vision_processor = vision_processor
-        self.language_processor = language_processor
+        self.tokenizer = tokenizer
         self.model = model
 
     def on_save(self, args, state, control, **kwargs):
+        """체크포인트 저장 시 호출되는 메서드"""
         ckpt_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
         
-        # 1. 먼저 토크나이저 저장 (특수 토큰 정보 포함됨)
-        self.language_processor.save_pretrained(ckpt_dir)
+        print(f"\n저장 중: {ckpt_dir}")
+        print("1. 토크나이저 저장 (특수 토큰 포함)")
+        self.tokenizer.save_pretrained(ckpt_dir)
         
-        # 2. 비전 프로세서 저장
+        print("2. 비전 프로세서 저장")
         self.vision_processor.save_pretrained(ckpt_dir)
         
-        # 3. LoRA 어댑터 저장
+        print("3. LoRA 모델 저장")
         self.model.save_pretrained(ckpt_dir)
+        
+        print(f"체크포인트 저장 완료: {ckpt_dir}\n")
 # ---------------------------------------------------------------------------- #
 # 2. Collator
 # ---------------------------------------------------------------------------- #
@@ -200,6 +204,7 @@ def main():
         target_modules  = lora_target_modules,
         bias            = "none"
     )
+    # PEFT 모델 생성 및 초기화 후 바로 체크
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
@@ -237,11 +242,6 @@ def main():
         max_grad_norm=cfg.training.max_grad_norm,
     )
     
-    # 여기에 토크나이저 저장 코드 추가 (training_args 사용 가능)
-    tokenizer_save_dir = os.path.join(training_args.output_dir, "tokenizer")
-    os.makedirs(tokenizer_save_dir, exist_ok=True)
-    language_processor.save_pretrained(tokenizer_save_dir)
-    
     data_collator = MultimodalCollator()
     trainer = Trainer(
         model=model,
@@ -250,10 +250,11 @@ def main():
         data_collator=data_collator,
         tokenizer=model.tokenizer
     )
+    # 콜백 추가 - 인자 이름에 주의!
     trainer.add_callback(CopyProcessorCallback(
-    vision_processor=vision_processor, 
-    model=model, 
-    tokenizer=model.tokenizer  # 모델에서 사용 중인 토크나이저 전달
+        vision_processor=vision_processor,
+        tokenizer=language_processor,  # 여기서는 'tokenizer' 매개변수 사용
+        model=model
     ))
     trainer.train()
     merged_model = model.merge_and_unload()   # FP16/full‑precision 가정
