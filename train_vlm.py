@@ -42,25 +42,24 @@ def create_input_with_template(instruction, tokenizer, image_placeholder=DEFAULT
     return inputs
 
 class CopyProcessorCallback(TrainerCallback):
-    def __init__(self, vision_processor, model=None, language_processor=None):
+    def __init__(self, vision_processor, model, tokenizer):
         self.vision_processor = vision_processor
-        self.language_processor = language_processor
         self.model = model
+        self.tokenizer = tokenizer  # 토크나이저 추가
 
     def on_save(self, args, state, control, **kwargs):
         ckpt_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
         
         # 비전 프로세서 저장
-        if self.vision_processor is not None:
-            self.vision_processor.save_pretrained(ckpt_dir)
-            
-        # 언어 프로세서(토크나이저) 저장
-        if self.language_processor is not None:
-            self.language_processor.save_pretrained(ckpt_dir)
+        self.vision_processor.save_pretrained(ckpt_dir)
         
-        # PEFT 모델의 LoRA 설정 저장
-        if self.model is not None and hasattr(self.model, "save_pretrained"):
-            # adapter_config.json 등 LoRA 설정이 저장됨
+        # 커스텀 토크나이저 저장 (수정된 특수 토큰 포함)
+        if self.tokenizer is not None:
+            # 토크나이저를 저장할 때 special_tokens_map.json, tokenizer_config.json 등도 함께 저장됨
+            self.tokenizer.save_pretrained(ckpt_dir)
+            
+        # LoRA 모델 설정 저장
+        if self.model is not None:
             self.model.save_pretrained(ckpt_dir)
 # ---------------------------------------------------------------------------- #
 # 2. Collator
@@ -252,7 +251,7 @@ def main():
     trainer.add_callback(CopyProcessorCallback(
     vision_processor=vision_processor, 
     model=model, 
-    language_processor=language_processor
+    tokenizer=model.tokenizer  # 모델에서 사용 중인 토크나이저 전달
     ))
     trainer.train()
     merged_model = model.merge_and_unload()   # FP16/full‑precision 가정
