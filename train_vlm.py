@@ -165,6 +165,7 @@ def main():
     args = parse_args()
     cfg = load_config(args.config)
     # Config & Processor
+    # 토크나이저 설정
     model_config = VisionLanguageConfig(
         vision_model_name=cfg.model.vision_model_name,
         language_model_name=cfg.model.llm_model_name,
@@ -175,7 +176,7 @@ def main():
         freeze_vision=cfg.model.freeze_vision,
         freeze_llm=cfg.model.freeze_llm,
     )
-    # Config & Processor
+
     vision_processor = AutoProcessor.from_pretrained(cfg.model.vision_model_name)
     language_processor = AutoTokenizer.from_pretrained(cfg.model.llm_model_name)
 
@@ -192,11 +193,12 @@ def main():
         DEFAULT_IM_END_TOKEN,
     ]}
     language_processor.add_special_tokens(special_tokens)
-    # Load the model
-    model = CaptioningVLM(config = model_config, 
-                          AutoTokenizer = language_processor)
 
-    
+    # 올바른 파라미터 이름으로 모델 초기화
+    model = CaptioningVLM(
+        config=model_config, 
+        tokenizer=language_processor
+    )
 
 
 
