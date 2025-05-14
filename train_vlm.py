@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from src.dataset import VLMDataset
 from src.models.config import VisionLanguageConfig
 from src.models.build import CustomVLMModel
+from src.models.captionvlm import CaptioningVLM
 from src.models.constant import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
 # ---------------------------------------------------------------------------- #
@@ -170,7 +171,7 @@ def main():
     )
 
     # Load the model
-    model = CustomVLMModel(model_config)
+    model = CaptioningVLM(model_config)
     vision_processor = AutoProcessor.from_pretrained(cfg.model.vision_model_name)
     language_processor = deepcopy(model.tokenizer)
 
