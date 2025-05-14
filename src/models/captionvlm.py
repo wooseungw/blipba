@@ -115,14 +115,32 @@ class CaptioningVLM(CustomVLMModel):
 
     def _interleave_features_and_captions(self, v_emb, caption_embeds_list):
         """비주얼 특징과 캡션을 인터리빙하는 메서드"""
-        batch_size, v_seq_len, dim = v_emb.shape
+        device = v_emb.device
+        dtype = v_emb.dtype
+        
+        # v_emb 차원 확인 및 처리
+        if v_emb.dim() == 2:
+            # newline_inserter가 반환한 2D 텐서인 경우 (flattened)
+            num_features, dim = v_emb.shape
+            
+            # 2D -> 3D 변환 (batch 차원 추가)
+            v_emb = v_emb.unsqueeze(0)  # [1, num_features, dim]
+            batch_size = 1
+            v_seq_len = num_features
+        else:
+            # 이미 3D 텐서인 경우
+            batch_size, v_seq_len, dim = v_emb.shape
         
         # 각 샘플에 대해 특징과 캡션을 인터리빙
         interleaved_features = []
         
         for b in range(batch_size):
-            sample_features = v_emb[b]
+            sample_features = v_emb[b]  # [seq_len, dim]
             sample_caption = caption_embeds_list[b]
+            
+            # 캡션 차원 확인 및 조정
+            if sample_caption.dim() == 3:
+                sample_caption = sample_caption.squeeze(0)  # 배치 차원 제거
             
             # 비주얼 특징을 4개 청크로 분할
             chunk_size = v_seq_len // 4
@@ -150,14 +168,15 @@ class CaptioningVLM(CustomVLMModel):
             if current_length < max_length:
                 # 패딩 추가
                 padding = torch.zeros(max_length - current_length, dim, 
-                                     device=feat.device, dtype=feat.dtype)
+                                    device=device, dtype=dtype)
                 padded = torch.cat([feat, padding], dim=0)
             else:
                 padded = feat
             padded_features.append(padded)
         
         # 배치 차원으로 스택
-        return torch.stack(padded_features)
+        result = torch.stack(padded_features)
+        return result
 
     def _prepare_multimodal_inputs(
         self,
@@ -188,15 +207,13 @@ class CaptioningVLM(CustomVLMModel):
                 
             # 5. 각 비디오 샘플에 대한 캡션 생성
             caption_embeds_list, outputs_list = self._generate_captions_for_features(v_emb)
-            
-            # 6. 비주얼 특징과 캡션 인터리빙
+                
+            # 6. 차원 문제 방지를 위해 뉴라인 토큰 삽입 없이 인터리빙만 수행
             v_emb = self._interleave_features_and_captions(v_emb, caption_embeds_list)
             
-            # 7. 줄바꿈 토큰 삽입
-            v_emb = self.newline_inserter(v_emb, self.image_newline)
             v_embs[i] = v_emb
         
-        # 8. 이미지 토큰 대체
+        # 7. 이미지 토큰 대체
         inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
             labels=processed_labels,
