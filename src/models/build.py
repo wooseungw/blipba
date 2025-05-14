@@ -71,7 +71,7 @@ class CustomVLMModel(PreTrainedModel):
         # 3) Optional resampler ---------------------------------------------
         if getattr(config, "use_resampler", False):
             from src.models.resampler.mamba_ssm.modules.mamba_compressor import MambaCompressor
-            self.resampler = MambaCompressor(d_model=d_l, n_layer=4, fp32=False)
+            self.resampler = MambaCompressor(d_model=d_l, n_layer=1, fp32=False)
         else:
             self.resampler = None
         print(f"Vision encoder: {self.vision_encoder.__class__.__name__}","LLM: ", self.llm.__class__.__name__)
