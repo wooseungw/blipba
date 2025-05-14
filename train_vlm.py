@@ -200,12 +200,6 @@ def main():
         target_modules  = lora_target_modules,
         bias            = "none"
     )
-    # 이미 로드된 토크나이저를 명시적 디렉토리에 저장
-    tokenizer_save_dir = os.path.join(training_args.output_dir, "tokenizer")
-    os.makedirs(tokenizer_save_dir, exist_ok=True)
-    language_processor.save_pretrained(tokenizer_save_dir)
-
-    # PEFT 모델 생성 (이 지점에서 토크나이저가 이미 저장되어 있음)
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
@@ -242,7 +236,12 @@ def main():
         logging_steps=cfg.training.logging_steps,
         max_grad_norm=cfg.training.max_grad_norm,
     )
-
+    
+    # 여기에 토크나이저 저장 코드 추가 (training_args 사용 가능)
+    tokenizer_save_dir = os.path.join(training_args.output_dir, "tokenizer")
+    os.makedirs(tokenizer_save_dir, exist_ok=True)
+    language_processor.save_pretrained(tokenizer_save_dir)
+    
     data_collator = MultimodalCollator()
     trainer = Trainer(
         model=model,
