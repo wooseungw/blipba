@@ -92,7 +92,7 @@ class CaptioningVLM(CustomVLMModel):
         processed_labels = torch.full_like(processed_input_ids, IGNORE_INDEX)
     
         # 프롬프트 임베딩
-        print("프롬프트 이미지 삽입")
+        
         inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
             labels=processed_labels,  # 필수 인자 labels 추가
@@ -140,6 +140,8 @@ class CaptioningVLM(CustomVLMModel):
                 caption_text, return_tensors="pt"
             ).input_ids.to(v_emb.device)
         
+        print(f"생성된 캡션: {caption_text}")
+        
         # 캡션 토큰을 임베딩으로 변환
         caption_embeds = self.llm.get_input_embeddings()(caption_only_ids)
         
@@ -170,7 +172,7 @@ class CaptioningVLM(CustomVLMModel):
         # 여기서 부터는 배치 단위로 따로 처리된다.
         # [(num_samples, seq_len, dim'), ...], len(v_embs) = B
         for i, v_emb in enumerate(v_embs):
-            print(f"비전 임베딩 {i+1} 처리", "shape:", v_emb.shape)
+            
             # 3. 비전 임베딩 풀링
             if self.config.mm_spatial_pool_mode != "none":
                 v_emb = self._get_2dPool(v_emb, stride=2) # v_emb: [num_samples, seq_len', dim']
@@ -197,13 +199,13 @@ class CaptioningVLM(CustomVLMModel):
                     # 청크와 캡션 결합
                     chunk_with_caption = torch.cat([chunk_with_newline, caption], dim=0)
                     chunks_with_caption.append(chunk_with_caption)
-                    print(f"청크 {j+1} 처리 완료, shape:", chunk_with_caption.shape)
+                    
             # 배치 차원으로 다시 결합
-            print("청크 결합")
+
             # 모든 청크 결합
             if chunks_with_caption:
                 v_embs[i] = torch.cat(chunks_with_caption, dim=0)
-                print(f"결합된 비전 임베딩 {i+1} shape:", v_embs[i].shape)
+
         # 7. 이미지 토큰 대체
         return self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
