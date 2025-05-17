@@ -158,7 +158,8 @@ class CaptioningVLM(CustomVLMModel):
         attention_mask: Optional[torch.LongTensor] = None,
         labels: Optional[torch.LongTensor] = None
     ) -> Tuple[torch.FloatTensor, torch.LongTensor, torch.LongTensor, torch.LongTensor]:
-
+        if pixel_values.dim() == 5:
+            pixel_values = pixel_values.squeeze(0)
         # 1. 토큰 전처리
         processed_input_ids = self.preprocess_image_tokens(input_ids)
         processed_labels = processed_input_ids.clone() if labels is None else self.preprocess_image_tokens(labels)
