@@ -42,7 +42,7 @@ echo "모델 디렉토리: $MODEL_DIR"
 echo "비디오 경로: $VIDEO_ROOT"
 echo "결과 디렉토리: $RESULTS_DIR"
 
-python evaluate.py \
+python evaluation.py \
   --model_path $MODEL_DIR \
   --dataset_name $DATASET \
   --data_path $DATA_PATH \
