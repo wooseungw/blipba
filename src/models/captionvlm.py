@@ -166,7 +166,7 @@ class CaptioningVLM(CustomVLMModel):
         # 2. 비전 인코딩
         # 계산 효율성을 위해 배치와 샘플들을 배치차원으로 결합해 처리한다.
         B = processed_input_ids.size(0) 
-        print(f"processed_input_ids: {processed_input_ids.shape}")
+        print(f"B: {B}", "pixel_values:",pixel_values.shape)
         v_embs = self._get_vision_embeds(pixel_values) # [B*num_saples, seq_len, dim']
         print(f"v_embs: {v_embs.shape}")
         v_embs = list(torch.split(v_embs, B, dim=0)) #[(num_samples, seq_len, dim'), ...], len(v_embs) = B
