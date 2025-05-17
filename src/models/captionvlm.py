@@ -171,6 +171,7 @@ class CaptioningVLM(CustomVLMModel):
         
         # 여기서 부터는 배치 단위로 따로 처리된다.
         # [(num_samples, seq_len, dim'), ...], len(v_embs) = B
+        print(f"v_embs: {len(v_embs)}")
         for i, v_emb in enumerate(v_embs):
             
             # 3. 비전 임베딩 풀링
@@ -189,7 +190,7 @@ class CaptioningVLM(CustomVLMModel):
                 # 청크가 비어있지 않은지 확인
                 if start < num_samples:
                     chunk = v_emb[start:end]  # (chunk_size, seq_len', dim')
-                    
+                    print(f"청크 {j+1}: {chunk.shape}")
                     # 뉴라인 토큰 삽입
                     chunk_with_newline = self.newline_inserter(chunk, self.image_newline)
                     
