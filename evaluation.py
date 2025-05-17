@@ -188,8 +188,15 @@ def run_evaluation(args):
     
     # 모델 디렉토리 확인
     model_dir = Path(args.model_path)
+    
+    # .pt 파일이 경로에 포함되어 있으면 부모 디렉토리 사용
+    if str(model_dir).endswith('.pt'):
+        print(f"경고: .pt 파일이 지정되었습니다. 대신 부모 디렉토리를 사용합니다.")
+        model_dir = model_dir.parent
+        print(f"모델 디렉토리로 변경: {model_dir}")
+    
     if not model_dir.is_dir():
-        raise ValueError(f"모델 경로는 디렉토리여야 합니다: {args.model_path}")
+        raise ValueError(f"모델 경로는 디렉토리여야 합니다: {model_dir}")
     
     # 설정 파일 확인
     config_path = model_dir / "config.json"
@@ -208,7 +215,7 @@ def run_evaluation(args):
             freeze_vision = cfg.model.freeze_vision
             freeze_llm = cfg.model.freeze_llm
         else:
-            raise ValueError("모델 디렉토리에 config.json 파일이 없고 --config 인자도 제공되지 않았습니다.")
+            raise ValueError(f"모델 디렉토리에 config.json 파일이 없고 --config 인자도 제공되지 않았습니다: {model_dir}")
     else:
         print(f"모델 설정 파일 사용: {config_path}")
         # 모델 설정 파일이 존재하면 자동으로 로드됨

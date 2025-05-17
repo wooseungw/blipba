@@ -3,26 +3,33 @@ export WANDB_API_KEY=9fd21364ed6c1c6677a250972c5e19a931171974
 #!/bin/bash
 
 # CaptioningVLM 모델 평가를 위한 쉘 스크립트
-# 사용법: ./run_eval.sh [데이터셋] [모델_경로] [비디오_경로]
+# 사용법: ./run_eval.sh [데이터셋] [모델_디렉토리] [비디오_경로]
 
 # 기본값 설정
 DATASET=${1:-"NextQA"}
-MODEL_DIR=${2:-"outputs/captionvlm/checkpoint-1000/model.pt"}
-VIDEO_ROOT=${3:-"DATAS/eval/NextQA/NExTVideo"}
+MODEL_DIR=${2:-"outputs/captionvlm/checkpoint-1000"}
+VIDEO_ROOT=${3:-"/DATAS/eval/NextQA/NExTVideo"}
 RESULTS_DIR="results/captionvlm_eval/${DATASET}"
 DATA_PATH=""
 
 # 데이터셋에 따른 경로 설정
 case $DATASET in
   "NextQA")
-    DATA_PATH="DATAS/eval/NextQA/formatted_dataset_val.json"
+    DATA_PATH="/DATAS/eval/NextQA/formatted_dataset_val.json"
     ;;
   *)
     echo "지원되지 않는 데이터셋: $DATASET"
-    echo "지원 데이터셋: VideoMME, MovieChat, VSI"
+    echo "지원 데이터셋: NextQA"
     exit 1
     ;;
 esac
+
+# 모델 경로가 .pt 파일이면 경고하고 디렉토리 경로로 수정
+if [[ "$MODEL_DIR" == *".pt" ]]; then
+  echo "경고: 모델 경로가 .pt 파일로 끝납니다. 모델 디렉토리 경로를 사용해야 합니다."
+  MODEL_DIR=$(dirname "$MODEL_DIR")
+  echo "모델 디렉토리로 변경: $MODEL_DIR"
+fi
 
 # 필요한 디렉토리 생성
 mkdir -p $RESULTS_DIR
