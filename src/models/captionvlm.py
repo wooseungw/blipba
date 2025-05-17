@@ -138,12 +138,12 @@ class CaptioningVLM(CustomVLMModel):
             caption_text = ""
             caption_only_ids = self.tokenizer(
                 caption_text, return_tensors="pt"
-            ).input_ids.to(v_emb.device)
+            ).input_ids.to(v_emb.device).long()  # 명시적으로 long 타입으로 변환
         
         print(f"생성된 캡션: {caption_text}")
         
         # 캡션 토큰을 임베딩으로 변환
-        caption_embeds = self.llm.get_input_embeddings()(caption_only_ids)
+        caption_embeds = self.llm.get_input_embeddings()(caption_only_ids.long())
         
         # 원래 훈련 상태로 복원
         self.train(training_state)
