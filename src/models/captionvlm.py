@@ -122,7 +122,7 @@ class CaptioningVLM(CustomVLMModel):
                 num_beams=3,
                 early_stopping=True,
                 do_sample=True,
-                temperature=0.4,
+                temperature=0.1,
                 top_p=0.9,
                 return_dict_in_generate=True,
             )
