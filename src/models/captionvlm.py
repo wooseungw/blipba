@@ -220,3 +220,5 @@ class CaptioningVLM(CustomVLMModel):
             max_length=self.config.language_config.max_position_embeddings,
             padding_side=self.tokenizer.padding_side,
         )
+        
+    
