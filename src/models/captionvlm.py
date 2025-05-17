@@ -140,7 +140,7 @@ class CaptioningVLM(CustomVLMModel):
                 caption_text, return_tensors="pt"
             ).input_ids.to(v_emb.device).long()  # 명시적으로 long 타입으로 변환
         
-        print(f"생성된 캡션: {caption_text}")
+        # print(f"생성된 캡션: {caption_text}")
         
         # 캡션 토큰을 임베딩으로 변환
         caption_embeds = self.llm.get_input_embeddings()(caption_only_ids.long())
@@ -191,7 +191,7 @@ class CaptioningVLM(CustomVLMModel):
                 # 청크가 비어있지 않은지 확인
                 if start < num_samples:
                     chunk = v_emb[start:end]  # (chunk_size, seq_len', dim')
-                    print(f"청크 {j+1}: {chunk.shape}")
+                    # print(f"청크 {j+1}: {chunk.shape}")
                     # 뉴라인 토큰 삽입
                     chunk_with_newline = self.newline_inserter(chunk, self.image_newline)
                     
