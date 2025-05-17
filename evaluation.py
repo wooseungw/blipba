@@ -10,19 +10,18 @@ from pathlib import Path
 from decord import VideoReader, cpu
 from typing import List, Dict, Union, Optional, Tuple
 from copy import deepcopy
+import importlib.util
 
 from transformers import AutoProcessor, AutoTokenizer
 from peft import PeftModel
 
-from src.models.config import VisionLanguageConfig
-from src.models.build import CustomVLMModel
-from src.constant import (
-    DEFAULT_IMAGE_TOKEN, 
-    DEFAULT_IM_START_TOKEN, 
-    DEFAULT_IM_END_TOKEN, 
-    IGNORE_INDEX, 
-    IMAGE_TOKEN_INDEX
-)
+# 먼저 상수 직접 정의
+IGNORE_INDEX = -100
+IMAGE_TOKEN_INDEX = -200
+DEFAULT_IMAGE_TOKEN = "<image>"
+DEFAULT_IMAGE_PATCH_TOKEN = "<imgpad>"
+DEFAULT_IM_START_TOKEN = "<im_start>"
+DEFAULT_IM_END_TOKEN = "<im_end>"
 
 # 경고 무시
 warnings.filterwarnings("ignore")
@@ -61,114 +60,111 @@ def load_video(video_path: str, max_frames_num: int, fps: int = 1, force_sample:
     
     return spare_frames, frame_time, video_time
 
-def load_model(model_path):
+def load_model_direct(model_path):
     """
-    저장된 모델을 로드하는 함수
+    VisionLanguageConfig.from_pretrained를 사용하지 않고 직접 모델 로드
     """
     print(f"모델 로딩 중: {model_path}")
     
     try:
-        # 일반 모델 로드 시도 (merged_model인 경우)
+        # config.json 파일 직접 읽기
         config_path = os.path.join(model_path, "config.json")
-        if os.path.exists(config_path):
-            # 기본 설정 로드
-            base_config = VisionLanguageConfig.from_pretrained(model_path)
-            
-            # 토크나이저 로드
-            tokenizer = AutoTokenizer.from_pretrained(model_path)
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            tokenizer.padding_side = "right"
-            
-            # 모델 인스턴스 생성
-            model = CustomVLMModel.from_pretrained(
-                model_path,
-                config=base_config,
-                tokenizer=tokenizer,
-                vision_dtype=torch.float16,
-                llm_dtype=torch.float16
-            )
-            is_peft_model = False
-            print("통합 모델(merged) 로드됨")
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"설정 파일을 찾을 수 없습니다: {config_path}")
+        
+        with open(config_path, 'r') as f:
+            config_dict = json.load(f)
+        
+        print(f"모델 설정 로드됨: language_model_name={config_dict.get('language_model_name')}, vision_model_name={config_dict.get('vision_model_name')}")
+        
+        # VisionLanguageConfig 및 CustomVLMModel 모듈 동적 로드
+        # src 디렉토리 경로 찾기
+        src_dir = None
+        for parent_dir in ['.', '..', '../..']:
+            if os.path.exists(os.path.join(parent_dir, 'src', 'models', 'config.py')):
+                src_dir = os.path.abspath(parent_dir)
+                break
+        
+        if not src_dir:
+            raise ImportError("src 디렉토리를 찾을 수 없습니다. 올바른 작업 디렉토리에서 실행하고 있는지 확인하세요.")
+        
+        import sys
+        sys.path.insert(0, src_dir)
+        
+        # 이제 정상적으로 import 가능
+        from src.models.config import VisionLanguageConfig
+        from src.models.build import CustomVLMModel
+        
+        # 토크나이저 로드
+        print("토크나이저 로드 중...")
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "right"
+        print(f"토크나이저 로드됨: 어휘 크기 = {len(tokenizer)}")
+        
+        # 비전 프로세서 로드
+        print("비전 프로세서 로드 중...")
+        try:
+            vision_processor = AutoProcessor.from_pretrained(model_path)
+            print("비전 프로세서 로드됨")
+        except Exception as e:
+            print(f"비전 프로세서 로드 중 오류: {e}, 대체 프로세서 로드 시도")
+            try:
+                # 대체 방법으로 비전 모델 이름에서 직접 로드
+                vision_model_name = config_dict.get("vision_model_name", "facebook/dino-vitb16")
+                vision_processor = AutoProcessor.from_pretrained(vision_model_name)
+                print(f"대체 프로세서 로드됨: {vision_model_name}")
+            except Exception as sub_e:
+                print(f"대체 프로세서 로드 중 오류: {sub_e}")
+                raise
+        
+        # config 객체 생성
+        config = VisionLanguageConfig(**config_dict)
+        
+        # 모델 생성 
+        print("모델 인스턴스 생성 중...")
+        model = CustomVLMModel(
+            config=config, 
+            tokenizer=tokenizer,
+            vision_dtype=torch.float16, 
+            llm_dtype=torch.float16
+        )
+        
+        # 가중치 로드
+        print("모델 가중치 로드 중...")
+        # safetensors 파일부터 확인
+        safetensors_path = os.path.join(model_path, "model.safetensors")
+        if os.path.exists(safetensors_path):
+            from safetensors.torch import load_file
+            model.load_state_dict(load_file(safetensors_path))
+            print("model.safetensors에서 가중치 로드됨")
         else:
-            # LoRA 체크포인트인 경우
-            adapter_config_path = os.path.join(model_path, "adapter_config.json")
-            if not os.path.exists(adapter_config_path):
-                raise FileNotFoundError(f"모델 구성 파일을 찾을 수 없습니다: {model_path}")
-            
-            # adapter_config.json에서 원본 모델 경로 추출
-            import json
-            with open(adapter_config_path, 'r') as f:
-                adapter_config = json.load(f)
-            
-            base_model_name = adapter_config.get("base_model_name_or_path")
-            if not base_model_name:
-                # 원본 모델 이름을 찾을 수 없는 경우, 체크포인트 이전 폴더에서 원본 모델 정보 찾기
-                parent_dir = os.path.dirname(model_path)
-                parent_config = os.path.join(parent_dir, "config.json")
-                if os.path.exists(parent_config):
-                    with open(parent_config, 'r') as f:
-                        config_data = json.load(f)
-                    vision_model_name = config_data.get("vision_model_name", "facebook/dino-vitb16")
-                    language_model_name = config_data.get("language_model_name", "Qwen/Qwen3-0.6B")
-                else:
-                    # 기본값 사용
-                    vision_model_name = "facebook/dino-vitb16"
-                    language_model_name = "Qwen/Qwen3-0.6B"
-                    print(f"Warning: 원본 모델 정보를 찾을 수 없어 기본값 사용: {vision_model_name}, {language_model_name}")
+            # pytorch_model.bin 확인
+            pytorch_model_path = os.path.join(model_path, "pytorch_model.bin")
+            if os.path.exists(pytorch_model_path):
+                model.load_state_dict(torch.load(pytorch_model_path, map_location="cpu"))
+                print("pytorch_model.bin에서 가중치 로드됨")
             else:
-                # 원본 모델 경로 사용하여 설정 로드
-                language_model_name = base_model_name
-                # 비전 모델은 일단 기본값 사용
-                vision_model_name = "facebook/dino-vitb16"
-            
-            # 토크나이저 로드
-            tokenizer = AutoTokenizer.from_pretrained(language_model_name)
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            tokenizer.padding_side = "right"
-            
-            # 모델 설정 구성
-            model_config = VisionLanguageConfig(
-                vision_model_name=vision_model_name,
-                language_model_name=language_model_name,
-                projector_type="mlp2x_gelu",
-                use_resampler=False,
-                mm_spatial_pool_mode="average",
-            )
-            
-            # 베이스 모델 로드 
-            base_model = CustomVLMModel(
-                model_config,
-                tokenizer=tokenizer
-            )
-            
-            # PEFT 모델 로드
-            from peft import PeftConfig, PeftModel
-            model = PeftModel.from_pretrained(base_model, model_path)
-            is_peft_model = True
-            print("LoRA 체크포인트 모델 로드됨")
+                # 모든 .bin 또는 .safetensors 파일 확인
+                weight_files = [f for f in os.listdir(model_path) 
+                              if f.endswith('.bin') or f.endswith('.safetensors')]
+                if weight_files:
+                    weight_path = os.path.join(model_path, weight_files[0])
+                    if weight_path.endswith('.bin'):
+                        model.load_state_dict(torch.load(weight_path, map_location="cpu"))
+                    else:
+                        from safetensors.torch import load_file
+                        model.load_state_dict(load_file(weight_path))
+                    print(f"{weight_files[0]}에서 가중치 로드됨")
+                else:
+                    raise FileNotFoundError(f"모델 가중치 파일을 찾을 수 없습니다: {model_path}")
+        
+        print("모델 로드 완료!")
+        
     except Exception as e:
         print(f"모델 로드 중 오류 발생: {e}")
         raise
-    
-    # 비전 프로세서 로드
-    try:
-        vision_processor = AutoProcessor.from_pretrained(model_path)
-        print("비전 프로세서 로드됨")
-    except Exception as e:
-        print(f"비전 프로세서 로드 중 오류: {e}, 대체 프로세서 로드 시도")
-        try:
-            # 대체 방법으로 비전 모델 이름에서 직접 로드
-            if hasattr(model.config, "vision_model_name"):
-                vision_processor = AutoProcessor.from_pretrained(model.config.vision_model_name)
-                print(f"대체 프로세서 로드됨: {model.config.vision_model_name}")
-            else:
-                vision_processor = AutoProcessor.from_pretrained("facebook/dino-vitb16")
-                print("기본 비전 프로세서 로드됨: facebook/dino-vitb16")
-        except Exception as sub_e:
-            print(f"대체 프로세서 로드 중 오류: {sub_e}")
-            raise
 
     # GPU 사용 가능하면 GPU로 이동
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -477,7 +473,7 @@ def main():
     os.makedirs(os.path.join(args.results_dir, "outputs"), exist_ok=True)
     
     # 모델, 토크나이저, 프로세서 로드
-    model, tokenizer, vision_processor, device = load_model(args.model_path)
+    model, tokenizer, vision_processor, device = load_model_direct(args.model_path)
     
     # 데이터셋 로드
     dataset = load_dataset(args.data_path, args.video_root, args.test_ratio)
@@ -529,7 +525,7 @@ def main():
     print(json.dumps(metrics, indent=2, ensure_ascii=False))
     
     # 최종 결과 저장
-    with open(os.path.join(args.results_dir, "results.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(args.results_dir, "results.json"), "w", encoding='utf-8') as f:
         json.dump({
             "metrics": metrics,
             "args": vars(args)
