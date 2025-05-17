@@ -8,14 +8,14 @@ export WANDB_API_KEY=9fd21364ed6c1c6677a250972c5e19a931171974
 # 기본값 설정
 DATASET=${1:-"NextQA"}
 MODEL_DIR=${2:-"outputs/captionvlm/checkpoint-1000"}
-VIDEO_ROOT=${3:-"/DATAS/eval/NextQA/NExTVideo"}
+VIDEO_ROOT=${3:-"DATAS/eval/NextQA/NExTVideo"}
 RESULTS_DIR="results/captionvlm_eval/${DATASET}"
 DATA_PATH=""
 
 # 데이터셋에 따른 경로 설정
 case $DATASET in
   "NextQA")
-    DATA_PATH="/DATAS/eval/NextQA/formatted_dataset_val.json"
+    DATA_PATH="DATAS/eval/NextQA/formatted_dataset_val.json"
     ;;
   *)
     echo "지원되지 않는 데이터셋: $DATASET"
