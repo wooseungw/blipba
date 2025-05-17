@@ -1,7 +1,7 @@
 from typing import Optional
 import torch
 from src.models.build import CustomVLMModel
-from typing import Union, List
+from typing import Union, List, Tuple
 
 # 필요한 상수들을 직접 정의 (import 문제 해결)
 IGNORE_INDEX = -100
@@ -12,6 +12,36 @@ DEFAULT_IM_START_TOKEN = "<im_start>"
 DEFAULT_IM_END_TOKEN = "<im_end>"
 
 class CaptioningVLM(CustomVLMModel):
+    """
+    비주얼 콘텐츠에 대한 자동 캡션 생성 기능을 갖춘 비전-언어 모델(Vision-Language Model).
+    이 모델은 표준 VLM의 기능을 확장하여 비주얼 특징(이미지 또는 비디오 프레임)에 대한 
+    자동 캡션을 생성하고, 이를 원본 비주얼 특징과 함께 사용하여 향상된 멀티모달 이해를 제공합니다.
+    주요 기능:
+    1. 비주얼 특징에 대한 자동 캡션 생성
+    2. 비주얼 특징과 생성된 캡션의 인터리빙(번갈아 배치)
+    3. 멀티모달 입력 전처리 및 토큰 대체
+    주요 메소드:
+    - _generate_captions_for_features: 비주얼 특징으로부터 텍스트 캡션을 생성
+        입력: v_emb (torch.FloatTensor) - [batch_size, seq_len, dim] 형태의 비주얼 특징
+        출력: (list[torch.FloatTensor], list) - 캡션 임베딩 리스트와 생성 결과 리스트
+    - _interleave_features_and_captions: 비주얼 특징과 캡션을 번갈아 배치
+        입력: v_emb (torch.FloatTensor) - [batch_size, seq_len, dim] 또는 [num_features, dim] 형태의 비주얼 특징
+                    caption_embeds_list (list[torch.FloatTensor]) - 각 샘플의 캡션 임베딩
+        출력: torch.FloatTensor - [batch_size, max_seq_len, dim] 형태의 인터리빙된 특징
+    - _prepare_multimodal_inputs: 멀티모달 입력을 준비하고 이미지 토큰을 특징으로 대체
+        입력: pixel_values (torch.FloatTensor) - [batch_size, channels, height, width] 또는 
+            [batch_size, frames, channels, height, width] 형태의 이미지/비디오
+            input_ids (torch.LongTensor) - [batch_size, seq_len] 형태의 입력 토큰 ID
+            attention_mask (torch.LongTensor, 선택적) - 어텐션 마스크
+            labels (torch.LongTensor, 선택적) - 레이블
+        출력: (torch.FloatTensor, torch.LongTensor, torch.LongTensor, torch.LongTensor) - 
+                    (입력 임베딩, 어텐션 마스크, 레이블, 포지션 ID)
+    기술적 특징:
+    - 비주얼 특징을 4개 청크로 분할하여 처리
+    - 캡션 생성 시 빔 서치와 샘플링을 결합하여 품질 향상
+    - 자동 패딩을 통한 일괄 처리 지원
+    - 뉴라인 토큰을 사용한 구조적 특징 구성
+    """
     """Vision-Language model with automatic captioning of video features."""
 
     def __init__(self, config, **kwargs):
@@ -25,7 +55,7 @@ class CaptioningVLM(CustomVLMModel):
         ]
     
     @torch.no_grad()
-    def _generate_captions_for_features(self, v_emb):
+    def _generate_captions_for_features(self, v_emb: torch.FloatTensor):
         """비주얼 특징에 대한 캡션 생성 - 단순화된 방식"""
         batch_size, seq_len, dim = v_emb.shape
         
@@ -183,38 +213,69 @@ class CaptioningVLM(CustomVLMModel):
         pixel_values: torch.FloatTensor,
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.LongTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        ):
-        """forward와 generate에서 공통적으로 사용되는 입력 전처리 로직"""
+        labels: Optional[torch.LongTensor] = None
+    ) -> Tuple[torch.FloatTensor, torch.LongTensor, torch.LongTensor, torch.LongTensor]:
+        # 비디오인 경우 첫 4프레임만 사용
+        if pixel_values.dim() == 5:
+            pixel_values = pixel_values[:, :4, ...]
+        
         # 1. 토큰 전처리
         processed_input_ids = self.preprocess_image_tokens(input_ids)
-        if labels is not None:
-            processed_labels = self.preprocess_image_tokens(labels)
-        else:
-            processed_labels = processed_input_ids.clone()
+        processed_labels = processed_input_ids.clone() if labels is None else self.preprocess_image_tokens(labels)
         
         # 2. 비전 인코딩
-        self.current_batch_size = processed_input_ids.size(0)
-        v_embs = self._get_vision_embeds(pixel_values)  # (B*num_samples, N', d_l)
-        
-        # 3. v_embs 배치 처리
-        v_embs = list(torch.split(v_embs, self.current_batch_size, dim=0))  # (B, num_samples, N', d_l)
+        B = processed_input_ids.size(0)
+        v_embs = self._get_vision_embeds(pixel_values)
+        v_embs = list(torch.split(v_embs, B, dim=0))
         
         for i, v_emb in enumerate(v_embs):
-            # 4. 비전 임베딩 풀링
+            # 3. 비전 임베딩 풀링
             if self.config.mm_spatial_pool_mode != "none":
                 v_emb = self._get_2dPool(v_emb, stride=2)
-                
-            # 5. 각 비디오 샘플에 대한 캡션 생성
-            caption_embeds_list, outputs_list = self._generate_captions_for_features(v_emb)
-                
-            # 6. 차원 문제 방지를 위해 뉴라인 토큰 삽입 없이 인터리빙만 수행
-            v_emb = self._interleave_features_and_captions(v_emb, caption_embeds_list)
             
-            v_embs[i] = v_emb
+            # 4. 비전 특징을 4개 청크로 분할
+            batch_size, seq_len, dim = v_emb.shape
+            processed_chunks = []
+            
+            for b in range(batch_size):
+                sample_features = v_emb[b]  # (seq_len, dim)
+                chunk_size = seq_len // 4
+                
+                # 4개 청크로 분할 및 각 청크에 뉴라인 토큰 삽입
+                chunks_with_newline = []
+                for c in range(4):
+                    start_idx = c * chunk_size
+                    end_idx = (c + 1) * chunk_size if c < 3 else seq_len
+                    chunk = sample_features[start_idx:end_idx]
+                    
+                    # 뉴라인 토큰 삽입 (NewlineTokenInserter 적용)
+                    chunk_with_newline = self.newline_inserter(chunk, self.image_newline)
+                    chunks_with_newline.append(chunk_with_newline)
+                
+                # 5. 캡션 생성
+                caps_list, _ = self._generate_captions_for_features(v_emb[b:b+1])
+                caption_embed = caps_list[0]
+                
+                # 6. 특징 청크와 캡션 결합 (캡션은 맨 뒤에 추가)
+                combined_features = torch.cat(chunks_with_newline + [caption_embed], dim=0)
+                processed_chunks.append(combined_features)
+            
+            # 배치 내 길이 맞추기
+            max_len = max(x.shape[0] for x in processed_chunks)
+            padded_chunks = []
+            for chunk in processed_chunks:
+                if chunk.shape[0] < max_len:
+                    padding = torch.zeros(max_len - chunk.shape[0], dim, device=chunk.device, dtype=chunk.dtype)
+                    padded = torch.cat([chunk, padding], dim=0)
+                else:
+                    padded = chunk
+                padded_chunks.append(padded)
+            
+            # 배치 차원으로 다시 결합
+            v_embs[i] = torch.stack(padded_chunks, dim=0)
         
         # 7. 이미지 토큰 대체
-        inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
+        return self._replace_image_tokens_with_features(
             input_ids=processed_input_ids,
             labels=processed_labels,
             attention_mask=attention_mask,
@@ -225,5 +286,3 @@ class CaptioningVLM(CustomVLMModel):
             max_length=self.config.language_config.max_position_embeddings,
             padding_side=self.tokenizer.padding_side,
         )
-        
-        return inp_emb, pad_lbl, pad_mask, pos_ids
