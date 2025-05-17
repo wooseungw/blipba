@@ -1,67 +1,11 @@
 export CUDA_VISIBLE_DEVICES=0
 export WANDB_API_KEY=9fd21364ed6c1c6677a250972c5e19a931171974
-#!/bin/bash
 
-# CaptioningVLM 모델 평가를 위한 쉘 스크립트
-# 사용법: ./run_eval.sh [데이터셋] [모델_디렉토리] [비디오_경로]
-
-# 기본값 설정
-DATASET=${1:-"NextQA"}
-MODEL_DIR=${2:-"outputs/dinov2-qwen/merged_final"}
-VIDEO_ROOT=${3:-"DATAS/eval/NextQA/NExTVideo"}
-RESULTS_DIR="results/captionvlm_eval/${DATASET}"
-DATA_PATH=""
-
-# 데이터셋에 따른 경로 설정
-case $DATASET in
-  "NextQA")
-    DATA_PATH="DATAS/eval/NextQA/formatted_dataset_val.json"
-    ;;
-  *)
-    echo "지원되지 않는 데이터셋: $DATASET"
-    echo "지원 데이터셋: NextQA"
-    exit 1
-    ;;
-esac
-
-# 모델 경로가 .pt 파일이면 경고하고 디렉토리 경로로 수정
-if [[ "$MODEL_DIR" == *".pt" ]]; then
-  echo "경고: 모델 경로가 .pt 파일로 끝납니다. 모델 디렉토리 경로를 사용해야 합니다."
-  MODEL_DIR=$(dirname "$MODEL_DIR")
-  echo "모델 디렉토리로 변경: $MODEL_DIR"
-fi
-
-# 필요한 디렉토리 생성
-mkdir -p $RESULTS_DIR
-
-# GPU 개수 확인
-NUM_GPUS=$(nvidia-smi --list-gpus | wc -l)
-echo "사용 가능한 GPU 수: $NUM_GPUS"
-
-# 멀티프로세스 사용 여부 결정
-if [ $NUM_GPUS -gt 1 ]; then
-  MULTIPROCESS_FLAG="--multiprocess"
-else
-  MULTIPROCESS_FLAG=""
-fi
-
-# 평가 실행
-echo "평가 시작: $DATASET"
-echo "모델 디렉토리: $MODEL_DIR"
-echo "비디오 경로: $VIDEO_ROOT"
-echo "결과 디렉토리: $RESULTS_DIR"
-
-python evaluation.py \
-  --model_path $MODEL_DIR \
-  --dataset_name $DATASET \
-  --data_path $DATA_PATH \
-  --video_root $VIDEO_ROOT \
-  --results_dir $RESULTS_DIR \
-  --max_frames_num 64 \
-  --max_new_tokens 100 \
-  --use_time_ins \
-  --calc_acc \
-  $MULTIPROCESS_FLAG
-
-echo "평가 완료"
-echo "결과: $RESULTS_DIR/results.json"
+python evaluate_vlm.py --model_path /outputs/dinov2-qwen/merged_final \
+                       --data_path /DATAS/eval/NextQA/formatted_dataset_test.json \
+                       --video_root /DATAS/eval/NextQA/NExTVideo \
+                       --dataset_name NextQA \
+                       --results_dir ./results \
+                       --max_frames_num 64 \
+                       --fps 1 \
+                       --force_sample
