@@ -84,13 +84,15 @@ class CaptioningVLM(CustomVLMModel):
 
         # 입력 ID가 Long 타입인지 확인
         prompt_tokens.input_ids = prompt_tokens.input_ids.long()
-        prompt_tokens = self.preprocess_image_tokens(prompt_tokens)
+        # 수정: prompt_tokens 객체 자체가 아닌 input_ids 텐서를 전달
+        processed_input_ids = self.preprocess_image_tokens(prompt_tokens.input_ids)
+        
         # 프롬프트 임베딩
         print("프롬프트 이미지 삽입")
         inp_emb, pad_lbl, pad_mask, pos_ids = self._replace_image_tokens_with_features(
-            input_ids=prompt_tokens.input_ids,
+            input_ids=processed_input_ids,
             attention_mask=prompt_tokens.attention_mask,
-            image_features=v_emb,
+            image_features=[v_emb],
             embed_tokens_fn=self.llm.get_input_embeddings(),
             image_token_index=IMAGE_TOKEN_INDEX,
             ignore_index=IGNORE_INDEX,
@@ -121,7 +123,7 @@ class CaptioningVLM(CustomVLMModel):
             )
         
         # 프롬프트 길이 계산
-        prompt_len = prompt_tokens.input_ids.shape[1]
+        prompt_len = processed_input_ids.shape[1] 
         
         # 생성된 텍스트에서 프롬프트 이후 부분만 사용
         if outputs.sequences.shape[1] > prompt_len + 1:
