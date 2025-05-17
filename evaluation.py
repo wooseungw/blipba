@@ -186,73 +186,106 @@ def run_evaluation(args):
     print(f"전체 샘플 수: {num_samples}")
     print(f"랭크 {args.rank}의 샘플 수: {len(dataset)}")
     
-    # 저장된 모델 config 확인 및 로드
-    model_dir = Path(args.model_path).parent
-    saved_config_path = model_dir / "config.json"
+    # 모델 디렉토리 확인
+    model_dir = Path(args.model_path)
+    if not model_dir.is_dir():
+        raise ValueError(f"모델 경로는 디렉토리여야 합니다: {args.model_path}")
     
-    if saved_config_path.exists():
-        print(f"저장된 모델 설정 파일 사용: {saved_config_path}")
-        with open(saved_config_path, "r") as f:
-            model_cfg = json.load(f)
-        
-        # 필요한 모델 정보 추출
-        vision_model_name = model_cfg.get("vision_model_name", "facebook/dinov2-base")
-        llm_model_name = model_cfg.get("language_model_name", "Qwen/Qwen3-0.6B")
-        projector_type = model_cfg.get("projector_type", "linear")
-        use_resampler = model_cfg.get("use_resampler", False)
-        mm_spatial_pool_mode = model_cfg.get("mm_spatial_pool_mode", "average")
-        mm_newline_position = model_cfg.get("mm_newline_position", "grid")
-        freeze_vision = model_cfg.get("freeze_vision", True)
-        freeze_llm = model_cfg.get("freeze_llm", False)
-    elif args.config:
-        # 설정 파일이 없는 경우 외부 config 로드
-        print(f"외부 설정 파일 사용: {args.config}")
-        cfg = load_config(args.config)
-        
-        # 필요한 모델 정보 추출
-        vision_model_name = cfg.model.vision_model_name
-        llm_model_name = cfg.model.llm_model_name
-        projector_type = cfg.model.projector_type
-        use_resampler = getattr(cfg.model, "use_resampler", False)
-        mm_spatial_pool_mode = cfg.model.mm_spatial_pool_mode
-        mm_newline_position = getattr(cfg.model, "mm_newline_position", "grid")
-        freeze_vision = cfg.model.freeze_vision
-        freeze_llm = cfg.model.freeze_llm
+    # 설정 파일 확인
+    config_path = model_dir / "config.json"
+    if not config_path.exists():
+        if args.config:
+            print(f"외부 설정 파일 사용: {args.config}")
+            cfg = load_config(args.config)
+            
+            # 필요한 모델 정보 추출
+            vision_model_name = cfg.model.vision_model_name
+            llm_model_name = cfg.model.llm_model_name
+            projector_type = cfg.model.projector_type
+            use_resampler = getattr(cfg.model, "use_resampler", False)
+            mm_spatial_pool_mode = cfg.model.mm_spatial_pool_mode
+            mm_newline_position = getattr(cfg.model, "mm_newline_position", "grid")
+            freeze_vision = cfg.model.freeze_vision
+            freeze_llm = cfg.model.freeze_llm
+        else:
+            raise ValueError("모델 디렉토리에 config.json 파일이 없고 --config 인자도 제공되지 않았습니다.")
     else:
-        raise ValueError("모델 설정을 찾을 수 없습니다. --config 인자를 지정하거나 모델 폴더에 config.json 파일이 있어야 합니다.")
+        print(f"모델 설정 파일 사용: {config_path}")
+        # 모델 설정 파일이 존재하면 자동으로 로드됨
     
-    # 토크나이저 로드
-    tokenizer = AutoTokenizer.from_pretrained(
-        llm_model_name,
-        use_fast=True
-    )
+    # 토크나이저 로드 - 모델 디렉토리에서 바로 로드
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        print("모델 디렉토리에서 토크나이저 로드됨")
+    except Exception as e:
+        print(f"모델 디렉토리에서 토크나이저 로드 실패: {e}")
+        if 'llm_model_name' in locals():
+            print(f"기본 모델에서 토크나이저 로드: {llm_model_name}")
+            tokenizer = AutoTokenizer.from_pretrained(llm_model_name)
+        else:
+            raise ValueError("토크나이저를 로드할 수 없습니다. 설정 파일이나 모델 경로를 확인하세요.")
     
     # 이미지 프로세서 로드
-    image_processor = AutoProcessor.from_pretrained(
-        vision_model_name,
-        use_fast=True
-    )
+    image_processor_path = model_dir / "preprocessor_config.json"
+    if image_processor_path.exists():
+        image_processor = AutoProcessor.from_pretrained(model_dir)
+        print("모델 디렉토리에서 이미지 프로세서 로드됨")
+    else:
+        if 'vision_model_name' in locals():
+            print(f"기본 모델에서 이미지 프로세서 로드: {vision_model_name}")
+            image_processor = AutoProcessor.from_pretrained(vision_model_name)
+        else:
+            # 설정 파일에서 vision_model_name을 추출
+            try:
+                with open(config_path, "r") as f:
+                    model_cfg = json.load(f)
+                vision_model_name = model_cfg.get("vision_model_name")
+                if vision_model_name:
+                    image_processor = AutoProcessor.from_pretrained(vision_model_name)
+                    print(f"설정 파일에서 추출한 비전 모델에서 이미지 프로세서 로드: {vision_model_name}")
+                else:
+                    raise ValueError("설정 파일에서 vision_model_name을 찾을 수 없습니다.")
+            except Exception as e:
+                raise ValueError(f"이미지 프로세서를 로드할 수 없습니다: {e}")
     
-    # VLM 모델 설정
-    model_config = VisionLanguageConfig(
-        vision_model_name=vision_model_name,
-        language_model_name=llm_model_name,
-        projector_type=projector_type,
-        use_resampler=use_resampler,
-        mm_spatial_pool_mode=mm_spatial_pool_mode,
-        mm_newline_position=mm_newline_position,
-        freeze_vision=freeze_vision,
-        freeze_llm=freeze_llm,
-    )
+    # 모델 로드 - 허깅페이스 형식
+    print(f"모델 로드 중: {args.model_path}")
+    
+    # CaptioningVLM 모델 로드 - LoRA 적용 여부에 따라 다르게 처리
+    if args.lora_alpha:
+        # 기본 모델 설정 및 로드
+        model_config = VisionLanguageConfig.from_pretrained(model_dir)
+        base_model = CaptioningVLM(model_config, tokenizer=tokenizer)
+        
+        # LoRA 설정
+        lora_target_modules = [
+            "q_proj", "k_proj", "v_proj",
+            "o_proj",
+            "gate_proj", "up_proj", "down_proj"
+        ]
+        
+        from peft import LoraConfig, TaskType, get_peft_model, PeftModel
+        
+        # LoRA 모델 로드
+        model = PeftModel.from_pretrained(
+            base_model,
+            args.model_path,
+            is_trainable=False
+        )
+        print("LoRA 모델 로드됨")
+    else:
+        # 일반 모델 로드
+        model = CaptioningVLM.from_pretrained(
+            args.model_path,
+            tokenizer=tokenizer
+        )
+        print("일반 모델 로드됨")
     
     # CaptioningVLM 모델 로드
-    model = CaptioningVLM(model_config, tokenizer=tokenizer)
-    
-    # 학습된 모델 가중치 로드
-    if args.model_path:
-        print(f"모델 가중치 로드 중: {args.model_path}")
-        ckpt = torch.load(args.model_path, map_location='cpu')
-        model.load_state_dict(ckpt['model_state_dict'], strict=False)
+    model = CaptioningVLM.from_pretrained(
+        args.model_path,
+        tokenizer=tokenizer
+    )
     
     # LoRA 적용 (있는 경우)
     if args.lora_alpha:
@@ -271,7 +304,6 @@ def run_evaluation(args):
             r=128,
             lora_alpha=args.lora_alpha,
             lora_dropout=0.1,
-            base_model_name_or_path=cfg.model.llm_model_name,
             target_modules=lora_target_modules,
             bias="none"
         )
@@ -361,8 +393,8 @@ def main():
     parser = argparse.ArgumentParser(description="CaptioningVLM 모델 평가")
     
     # 모델 관련 인자
-    parser.add_argument("--config", type=str, default=None, help="선택적: 외부 설정 파일 경로 (모델 폴더에 config.json이 없는 경우)")
-    parser.add_argument("--model_path", type=str, default="outputs/test/merged_final",required=True, help="평가할 모델 가중치 경로")
+    parser.add_argument("--config", type=str, default=None, help="선택적: 외부 설정 파일 경로 (모델 디렉토리에 config.json이 없는 경우)")
+    parser.add_argument("--model_path", type=str, required=True, help="평가할 모델 디렉토리 경로")
     parser.add_argument("--max_frames_num", type=int, default=64, help="최대 프레임 수")
     parser.add_argument("--max_new_tokens", type=int, default=4096, help="생성할 최대 토큰 수")
     parser.add_argument("--use_time_ins", action="store_true", help="시간 정보를 프롬프트에 포함할지 여부")
