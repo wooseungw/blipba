@@ -186,31 +186,63 @@ def run_evaluation(args):
     print(f"전체 샘플 수: {num_samples}")
     print(f"랭크 {args.rank}의 샘플 수: {len(dataset)}")
     
-    # 설정 파일 로드
-    cfg = load_config(args.config)
+    # 저장된 모델 config 확인 및 로드
+    model_dir = Path(args.model_path).parent
+    saved_config_path = model_dir / "config.json"
+    
+    if saved_config_path.exists():
+        print(f"저장된 모델 설정 파일 사용: {saved_config_path}")
+        with open(saved_config_path, "r") as f:
+            model_cfg = json.load(f)
+        
+        # 필요한 모델 정보 추출
+        vision_model_name = model_cfg.get("vision_model_name", "facebook/dinov2-base")
+        llm_model_name = model_cfg.get("language_model_name", "Qwen/Qwen3-0.6B")
+        projector_type = model_cfg.get("projector_type", "linear")
+        use_resampler = model_cfg.get("use_resampler", False)
+        mm_spatial_pool_mode = model_cfg.get("mm_spatial_pool_mode", "average")
+        mm_newline_position = model_cfg.get("mm_newline_position", "grid")
+        freeze_vision = model_cfg.get("freeze_vision", True)
+        freeze_llm = model_cfg.get("freeze_llm", False)
+    elif args.config:
+        # 설정 파일이 없는 경우 외부 config 로드
+        print(f"외부 설정 파일 사용: {args.config}")
+        cfg = load_config(args.config)
+        
+        # 필요한 모델 정보 추출
+        vision_model_name = cfg.model.vision_model_name
+        llm_model_name = cfg.model.llm_model_name
+        projector_type = cfg.model.projector_type
+        use_resampler = getattr(cfg.model, "use_resampler", False)
+        mm_spatial_pool_mode = cfg.model.mm_spatial_pool_mode
+        mm_newline_position = getattr(cfg.model, "mm_newline_position", "grid")
+        freeze_vision = cfg.model.freeze_vision
+        freeze_llm = cfg.model.freeze_llm
+    else:
+        raise ValueError("모델 설정을 찾을 수 없습니다. --config 인자를 지정하거나 모델 폴더에 config.json 파일이 있어야 합니다.")
     
     # 토크나이저 로드
     tokenizer = AutoTokenizer.from_pretrained(
-        cfg.model.llm_model_name,
+        llm_model_name,
         use_fast=True
     )
     
     # 이미지 프로세서 로드
     image_processor = AutoProcessor.from_pretrained(
-        cfg.model.vision_model_name,
+        vision_model_name,
         use_fast=True
     )
     
     # VLM 모델 설정
     model_config = VisionLanguageConfig(
-        vision_model_name=cfg.model.vision_model_name,
-        language_model_name=cfg.model.llm_model_name,
-        projector_type=cfg.model.projector_type,
-        use_resampler=getattr(cfg.model, "use_resampler", False),
-        mm_spatial_pool_mode=cfg.model.mm_spatial_pool_mode,
-        mm_newline_position=getattr(cfg.model, "mm_newline_position", "grid"),
-        freeze_vision=cfg.model.freeze_vision,
-        freeze_llm=cfg.model.freeze_llm,
+        vision_model_name=vision_model_name,
+        language_model_name=llm_model_name,
+        projector_type=projector_type,
+        use_resampler=use_resampler,
+        mm_spatial_pool_mode=mm_spatial_pool_mode,
+        mm_newline_position=mm_newline_position,
+        freeze_vision=freeze_vision,
+        freeze_llm=freeze_llm,
     )
     
     # CaptioningVLM 모델 로드
@@ -329,8 +361,8 @@ def main():
     parser = argparse.ArgumentParser(description="CaptioningVLM 모델 평가")
     
     # 모델 관련 인자
-    parser.add_argument("--config", type=str, default="config/train.yaml", help="설정 파일 경로")
-    parser.add_argument("--model_path", type=str, default=None, help="평가할 모델 가중치 경로")
+    parser.add_argument("--config", type=str, default=None, help="선택적: 외부 설정 파일 경로 (모델 폴더에 config.json이 없는 경우)")
+    parser.add_argument("--model_path", type=str, default="outputs/test/merged_final",required=True, help="평가할 모델 가중치 경로")
     parser.add_argument("--max_frames_num", type=int, default=64, help="최대 프레임 수")
     parser.add_argument("--max_new_tokens", type=int, default=4096, help="생성할 최대 토큰 수")
     parser.add_argument("--use_time_ins", action="store_true", help="시간 정보를 프롬프트에 포함할지 여부")
