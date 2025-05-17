@@ -170,7 +170,7 @@ class CaptioningVLM(CustomVLMModel):
         print(f"B: {B}", "pixel_values:",pixel_values.shape)
         v_embs = self._get_vision_embeds(pixel_values) # [B*num_saples, seq_len, dim']
         print(f"v_embs: {v_embs.shape}")
-        v_embs = list(torch.split(v_embs, B, dim=0)) #[(num_samples, seq_len, dim'), ...], len(v_embs) = B
+        v_embs = list(torch.split(v_embs, v_embs.size(0)//B, dim=0)) #[(num_samples, seq_len, dim'), ...], len(v_embs) = B
         # 여기서 부터는 배치 단위로 따로 처리된다.
         # [(num_samples, seq_len, dim'), ...], len(v_embs) = B
         print(f"v_embs: {len(v_embs)}")
