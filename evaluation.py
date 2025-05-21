@@ -12,19 +12,18 @@ from typing import List, Dict, Union, Optional, Tuple
 from copy import deepcopy
 import importlib.util
 
-from transformers import AutoProcessor, AutoTokenizer
-from peft import PeftModel
+from transformers import AutoProcessor, AutoTokenizer, PreTrainedModel
 
-# 먼저 상수 직접 정의
+# 경고 무시
+warnings.filterwarnings("ignore")
+
+# 상수 직접 정의
 IGNORE_INDEX = -100
 IMAGE_TOKEN_INDEX = -200
 DEFAULT_IMAGE_TOKEN = "<image>"
 DEFAULT_IMAGE_PATCH_TOKEN = "<imgpad>"
 DEFAULT_IM_START_TOKEN = "<im_start>"
 DEFAULT_IM_END_TOKEN = "<im_end>"
-
-# 경고 무시
-warnings.filterwarnings("ignore")
 
 def load_video(video_path: str, max_frames_num: int, fps: int = 1, force_sample: bool = False, img_processor = None) -> Tuple:
     """
@@ -60,42 +59,53 @@ def load_video(video_path: str, max_frames_num: int, fps: int = 1, force_sample:
     
     return spare_frames, frame_time, video_time
 
-def load_model_direct(model_path):
+def import_src_modules():
     """
-    VisionLanguageConfig.from_pretrained를 사용하지 않고 직접 모델 로드
+    src 디렉토리의 모듈들을 동적으로 import
     """
-    print(f"모델 로딩 중: {model_path}")
+    # src 디렉토리 경로 찾기
+    src_dir = None
+    for parent_dir in ['.', '..', '../..']:
+        if os.path.exists(os.path.join(parent_dir, 'src', 'models', 'config.py')):
+            src_dir = os.path.abspath(parent_dir)
+            break
+    
+    if not src_dir:
+        raise ImportError("src 디렉토리를 찾을 수 없습니다. 올바른 작업 디렉토리에서 실행하고 있는지 확인하세요.")
+    
+    import sys
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+    
+    # 필요한 모듈 import
+    from src.models.config import VisionLanguageConfig
+    from src.models.build import CustomVLMModel
+    
+    return VisionLanguageConfig, CustomVLMModel
+
+def load_lora_checkpoint(model_path):
+    """
+    LoRA 체크포인트 디렉토리에서 모델 로딩
+    """
+    print(f"LoRA 체크포인트 로딩 중: {model_path}")
+    
+    # src 모듈 import
+    VisionLanguageConfig, CustomVLMModel = import_src_modules()
     
     try:
-        # config.json 파일 직접 읽기
-        config_path = os.path.join(model_path, "config.json")
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"설정 파일을 찾을 수 없습니다: {config_path}")
+        # 1. adapter_config.json 파일 로드
+        adapter_config_path = os.path.join(model_path, "adapter_config.json")
+        if not os.path.exists(adapter_config_path):
+            raise FileNotFoundError(f"adapter_config.json 파일을 찾을 수 없습니다: {adapter_config_path}")
         
-        with open(config_path, 'r') as f:
-            config_dict = json.load(f)
+        with open(adapter_config_path, 'r') as f:
+            adapter_config = json.load(f)
         
-        print(f"모델 설정 로드됨: language_model_name={config_dict.get('language_model_name')}, vision_model_name={config_dict.get('vision_model_name')}")
+        # 기본 모델 경로 확인
+        base_model_name = adapter_config.get("base_model_name_or_path")
+        print(f"기본 모델 참조: {base_model_name}")
         
-        # VisionLanguageConfig 및 CustomVLMModel 모듈 동적 로드
-        # src 디렉토리 경로 찾기
-        src_dir = None
-        for parent_dir in ['.', '..', '../..']:
-            if os.path.exists(os.path.join(parent_dir, 'src', 'models', 'config.py')):
-                src_dir = os.path.abspath(parent_dir)
-                break
-        
-        if not src_dir:
-            raise ImportError("src 디렉토리를 찾을 수 없습니다. 올바른 작업 디렉토리에서 실행하고 있는지 확인하세요.")
-        
-        import sys
-        sys.path.insert(0, src_dir)
-        
-        # 이제 정상적으로 import 가능
-        from src.models.config import VisionLanguageConfig
-        from src.models.build import CustomVLMModel
-        
-        # 토크나이저 로드
+        # 2. 토크나이저 로드 - 디렉토리에서 직접 로드
         print("토크나이저 로드 중...")
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         if tokenizer.pad_token is None:
@@ -103,62 +113,91 @@ def load_model_direct(model_path):
         tokenizer.padding_side = "right"
         print(f"토크나이저 로드됨: 어휘 크기 = {len(tokenizer)}")
         
-        # 비전 프로세서 로드
+        # 3. 비전 프로세서 로드
         print("비전 프로세서 로드 중...")
         try:
-            vision_processor = AutoProcessor.from_pretrained(model_path)
-            print("비전 프로세서 로드됨")
-        except Exception as e:
-            print(f"비전 프로세서 로드 중 오류: {e}, 대체 프로세서 로드 시도")
-            try:
-                # 대체 방법으로 비전 모델 이름에서 직접 로드
-                vision_model_name = config_dict.get("vision_model_name", "facebook/dino-vitb16")
+            # preprocessor_config.json 파일이 있으면 해당 디렉토리에서 로드
+            preprocessor_path = os.path.join(model_path, "preprocessor_config.json")
+            if os.path.exists(preprocessor_path):
+                vision_processor = AutoProcessor.from_pretrained(model_path)
+                print("비전 프로세서 로드됨")
+            else:
+                # 지정된 기본 비전 모델 사용
+                vision_model_name = "facebook/dinov2-small"  # 기본값
                 vision_processor = AutoProcessor.from_pretrained(vision_model_name)
                 print(f"대체 프로세서 로드됨: {vision_model_name}")
-            except Exception as sub_e:
-                print(f"대체 프로세서 로드 중 오류: {sub_e}")
-                raise
+        except Exception as e:
+            print(f"비전 프로세서 로드 중 오류: {e}")
+            vision_processor = AutoProcessor.from_pretrained("facebook/dinov2-small")
+            print("기본 비전 프로세서 로드됨: facebook/dinov2-small")
         
-        # config 객체 생성
+        # 4. 모델 설정 및 기본 모델 생성
+        # adapter_config에서 모델 구성 정보 추출 또는 기본값 사용
+        config_dict = {
+            "vision_model_name": "facebook/dinov2-small",  # 기본값
+            "language_model_name": base_model_name or "Qwen/Qwen3-0.6B",
+            "projector_type": "mlp2x_gelu",
+            "use_resampler": True,
+            "mm_spatial_pool_mode": "average",
+            "mm_newline_position": "grid",
+            "freeze_vision": True,
+            "freeze_llm": True
+        }
+        
+        # 상위 디렉토리에서 config.json 파일 찾기 시도
+        parent_dir = os.path.dirname(model_path)
+        parent_config_path = os.path.join(parent_dir, "config.json")
+        if os.path.exists(parent_config_path):
+            print(f"상위 디렉토리에서 config.json 발견. 설정 로드 중: {parent_config_path}")
+            with open(parent_config_path, 'r') as f:
+                parent_config = json.load(f)
+                # 기본 설정을 상위 디렉토리 설정으로 업데이트
+                for key, value in parent_config.items():
+                    if key in config_dict:
+                        config_dict[key] = value
+        
+        # 설정 객체 생성
         config = VisionLanguageConfig(**config_dict)
         
-        # 모델 생성 
-        print("모델 인스턴스 생성 중...")
-        model = CustomVLMModel(
+        # 기본 모델 생성
+        print("기본 모델 생성 중...")
+        base_model = CustomVLMModel(
             config=config, 
             tokenizer=tokenizer,
             vision_dtype=torch.float16, 
             llm_dtype=torch.float16
         )
         
-        # 가중치 로드
-        print("모델 가중치 로드 중...")
-        # safetensors 파일부터 확인
-        safetensors_path = os.path.join(model_path, "model.safetensors")
-        if os.path.exists(safetensors_path):
-            from safetensors.torch import load_file
-            model.load_state_dict(load_file(safetensors_path))
-            print("model.safetensors에서 가중치 로드됨")
+        # 5. LoRA 어댑터 로드
+        print("LoRA 어댑터 로드 중...")
+        
+        # safetensors 파일 확인
+        adapter_path = os.path.join(model_path, "adapter_model.safetensors")
+        if os.path.exists(adapter_path):
+            try:
+                from peft import PeftModel
+                model = PeftModel.from_pretrained(base_model, model_path)
+                print("PEFT 모델로 어댑터 로드 완료")
+            except Exception as peft_e:
+                print(f"PEFT 로드 중 오류: {peft_e}. 직접 가중치 로드 시도...")
+                
+                # 직접 어댑터 가중치 로드
+                from safetensors.torch import load_file
+                adapter_state_dict = load_file(adapter_path)
+                base_model.load_state_dict(adapter_state_dict, strict=False)
+                model = base_model
+                print("safetensors에서 어댑터 가중치 직접 로드됨")
         else:
-            # pytorch_model.bin 확인
-            pytorch_model_path = os.path.join(model_path, "pytorch_model.bin")
-            if os.path.exists(pytorch_model_path):
-                model.load_state_dict(torch.load(pytorch_model_path, map_location="cpu"))
-                print("pytorch_model.bin에서 가중치 로드됨")
+            # bin 파일 확인
+            adapter_bin_path = os.path.join(model_path, "adapter_model.bin")
+            if os.path.exists(adapter_bin_path):
+                adapter_state_dict = torch.load(adapter_bin_path, map_location="cpu")
+                base_model.load_state_dict(adapter_state_dict, strict=False)
+                model = base_model
+                print("adapter_model.bin에서 어댑터 가중치 로드됨")
             else:
-                # 모든 .bin 또는 .safetensors 파일 확인
-                weight_files = [f for f in os.listdir(model_path) 
-                              if f.endswith('.bin') or f.endswith('.safetensors')]
-                if weight_files:
-                    weight_path = os.path.join(model_path, weight_files[0])
-                    if weight_path.endswith('.bin'):
-                        model.load_state_dict(torch.load(weight_path, map_location="cpu"))
-                    else:
-                        from safetensors.torch import load_file
-                        model.load_state_dict(load_file(weight_path))
-                    print(f"{weight_files[0]}에서 가중치 로드됨")
-                else:
-                    raise FileNotFoundError(f"모델 가중치 파일을 찾을 수 없습니다: {model_path}")
+                print("경고: 어댑터 가중치 파일을 찾을 수 없습니다. 기본 모델만 사용합니다.")
+                model = base_model
         
         print("모델 로드 완료!")
         
@@ -430,13 +469,15 @@ def calculate_metrics(result_list):
     return results
 
 def main():
-    parser = argparse.ArgumentParser(description="VLMDataset 스타일의 비전-언어 모델 평가")
+    parser = argparse.ArgumentParser(description="LoRA 체크포인트를 활용한 VLM 모델 평가")
 
     # 모델 관련 인자
     parser.add_argument("--model_path", type=str, required=True,
-                       help="평가할 모델 경로 (merged_final 또는 checkpoint 디렉토리)")
+                       help="평가할 LoRA 체크포인트 디렉토리 경로")
     parser.add_argument("--max_frames_num", type=int, default=64,
                        help="비디오에서 추출할 최대 프레임 수")
+    parser.add_argument("--max_new_tokens", type=int, default=100,
+                       help="생성할 최대 토큰 수")
     parser.add_argument("--fps", type=int, default=1,
                        help="프레임 추출 fps")
     
@@ -473,7 +514,7 @@ def main():
     os.makedirs(os.path.join(args.results_dir, "outputs"), exist_ok=True)
     
     # 모델, 토크나이저, 프로세서 로드
-    model, tokenizer, vision_processor, device = load_model_direct(args.model_path)
+    model, tokenizer, vision_processor, device = load_lora_checkpoint(args.model_path)
     
     # 데이터셋 로드
     dataset = load_dataset(args.data_path, args.video_root, args.test_ratio)
@@ -484,13 +525,16 @@ def main():
         # 결과가 이미 존재하는지 확인
         sample_save_path = Path(args.results_dir) / "outputs" / f"{sample['id']}.json"
         if sample_save_path.exists() and not args.force_reevaluate:
-            with open(sample_save_path, 'r', encoding='utf-8') as f:
-                loaded_sample = json.load(f)
-                result_list.append(loaded_sample)
-                print(f"[{idx}] 기존 결과 로드: {loaded_sample.get('id')}")
-                if "answer" in loaded_sample:
-                    print(f"정답: {loaded_sample['answer']}, 예측: {loaded_sample['prediction']}")
-                continue
+            try:
+                with open(sample_save_path, 'r', encoding='utf-8') as f:
+                    loaded_sample = json.load(f)
+                    result_list.append(loaded_sample)
+                    print(f"[{idx}] 기존 결과 로드: {loaded_sample.get('id')}")
+                    if "answer" in loaded_sample:
+                        print(f"정답: {loaded_sample['answer']}, 예측: {loaded_sample['prediction']}")
+                    continue
+            except Exception as e:
+                print(f"기존 결과 로드 실패: {e}, 다시 평가합니다.")
         
         # 비디오 경로 구성
         video_path = Path(args.video_root) / sample["video"]
