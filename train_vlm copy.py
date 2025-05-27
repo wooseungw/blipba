@@ -26,6 +26,8 @@ from src.models.constant import (
     DEFAULT_IM_START_TOKEN,
     DEFAULT_IM_END_TOKEN,
 )
+
+from fvcore.nn import FlopCountAnalysis, parameter_count_table
 # ---------------------------------------------------------------------------- #
 # 0. Prompt Formatter
 # ---------------------------------------------------------------------------- #
@@ -284,6 +286,21 @@ def main():
         tokenizer=language_processor,  # 여기서는 'tokenizer' 매개변수 사용
         model=model
     ))
+
+    dummy_inputs = {
+    "input_ids": torch.randint(0, model.config.llm_vocab_size, (1, 256)).to(model.device),
+    "attention_mask": torch.ones((1, 256)).to(model.device),
+    "pixel_values": torch.randn(1, 3, 336, 336).to(model.device)
+    }
+    with torch.no_grad():
+        try:
+            flops = FlopCountAnalysis(model, dummy_inputs)
+            print("Parameters:")
+            print(parameter_count_table(model))
+            print(f"FLOPs: {flops.total()/1e9:.2f} GFLOPs")
+        except Exception as e:
+            print(f"계산 실패?: {e}")
+
     trainer.train()
     merged_model = model.merge_and_unload()   # FP16/full‑precision 가정
     
