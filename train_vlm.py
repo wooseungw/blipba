@@ -8,7 +8,7 @@ from transformers import (
     AutoProcessor,
 )
 from copy import deepcopy
-from peft import LoraConfig, TaskType, get_peft_model
+from peft import LoraConfig, TaskType, get_peft_model, SavePeftModelCallback
 from transformers import TrainerCallback, AutoTokenizer
 import yaml
 from omegaconf import OmegaConf
@@ -158,6 +158,13 @@ def load_config(config_path: str):
     if "dataset" not in cfg and "data" in cfg:
         cfg.dataset = cfg.data  # backward compatibility alias
     return cfg
+
+peft_full_ckpt_cb = SavePeftModelCallback(
+    save_full_model=True,   # ΔW까지 합쳐진 완전 가중치 저장
+    save_peft_model=True,   # adapter-only(ΔW)도 함께 보존할지 여부. 필요하면 True
+    merge_adapters=False    # 학습 중엔 LoRA 계속 활성화
+)
+
 # ---------------------------------------------------------------------------- #
 # 4. Main training flow
 # ---------------------------------------------------------------------------- #
@@ -277,13 +284,15 @@ def main():
         train_dataset=train_ds,
         data_collator=data_collator,
         tokenizer=model.tokenizer,
+        callbacks=[
+            peft_full_ckpt_cb,                        # ← 새 콜백
+            CopyProcessorCallback(                    # ← 기존 Processor 백업용
+                vision_processor=vision_processor,
+                tokenizer=language_processor,
+                model=model
+            )
+        ]
     )
-    # 콜백 추가 - 인자 이름에 주의!
-    trainer.add_callback(CopyProcessorCallback(
-        vision_processor=vision_processor,
-        tokenizer=language_processor,  # 여기서는 'tokenizer' 매개변수 사용
-        model=model
-    ))
     trainer.train()
     merged_model = model.merge_and_unload()   # FP16/full‑precision 가정
     
@@ -291,7 +300,7 @@ def main():
     save_dir = os.path.join(training_args.output_dir, "merged_final")
     os.makedirs(save_dir, exist_ok=True)
     
-    # ③ 모델 + 토크나이저 + 프로세서 저장
+    # ③ 모델  토크나이저  프로세서 저장
     merged_model.save_pretrained(save_dir, safe_serialization=True)     # safetensors
     language_processor.save_pretrained(save_dir)                       # tokenizer_config.json …
     vision_processor.save_pretrained(save_dir)      
