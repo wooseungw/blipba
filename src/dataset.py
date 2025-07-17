@@ -130,13 +130,49 @@ class VLMDataset(Dataset):
             messages.append({"role": role, "content": content})
 
         # ---------- 3) 토크나이즈 + 템플릿 ----------
-        templated = self.tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True,     # 마지막에 <|im_start|>assistant 삽입
-            return_tensors="pt"             # input_ids, attention_mask 직접 반환
-        )
-        input_ids       = templated["input_ids"].squeeze(0)         # (L,)
-        attention_mask  = templated["attention_mask"].squeeze(0)
+        try:
+            # Some tokenizers return different formats, so we need to handle both cases
+            templated = self.tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,     # 마지막에 <|im_start|>assistant 삽입
+                return_tensors="pt"             # input_ids, attention_mask 직접 반환
+            )
+            
+            # Check if templated is a dict or a tensor
+            if isinstance(templated, dict):
+                # Standard format: {"input_ids": tensor, "attention_mask": tensor}
+                input_ids = templated["input_ids"]
+                attention_mask = templated["attention_mask"]
+            else:
+                # Some tokenizers might return just input_ids as a tensor
+                input_ids = templated
+                attention_mask = torch.ones_like(input_ids)
+            
+            # 디버깅 정보 (필요시 주석 해제)
+            # print(f"Debug - input_ids shape: {input_ids.shape}, attention_mask shape: {attention_mask.shape}")
+            
+            # 안전한 차원 처리 - 항상 1D 텐서로 만들기
+            if input_ids.dim() > 1:
+                input_ids = input_ids.squeeze()
+            if attention_mask.dim() > 1:
+                attention_mask = attention_mask.squeeze()
+            
+            # 만약 여전히 다차원이면 첫 번째 요소만 사용
+            if input_ids.dim() > 1:
+                input_ids = input_ids[0]
+            if attention_mask.dim() > 1:
+                attention_mask = attention_mask[0]
+                
+        except Exception as e:
+            print(f"Error in tokenization for index {idx}: {e}")
+            print(f"Messages: {messages}")
+            print(f"Templated result type: {type(templated)}")
+            if hasattr(templated, 'shape'):
+                print(f"Templated shape: {templated.shape}")
+            elif isinstance(templated, dict):
+                for k, v in templated.items():
+                    print(f"  {k}: {type(v)}, shape: {getattr(v, 'shape', 'no shape')}")
+            raise
 
         # ---------- 4) labels 마스킹 ----------
         # Qwen-chat: <|im_start|>assistant 토큰 시퀀스 탐색
