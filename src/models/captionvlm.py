@@ -1,15 +1,25 @@
-from typing import Optional
+from typing import Optional, Union, List, Tuple
 import torch
 from src.models.build import CustomVLMModel
-from typing import Union, List, Tuple
 
-# 필요한 상수들을 직접 정의 (import 문제 해결)
-IGNORE_INDEX = -100
-IMAGE_TOKEN_INDEX = -200
-DEFAULT_IMAGE_TOKEN = "<image>"
-DEFAULT_IMAGE_PATCH_TOKEN = "<imgpad>"
-DEFAULT_IM_START_TOKEN = "<im_start>"
-DEFAULT_IM_END_TOKEN = "<im_end>"
+# Import constants from the constant module if available, otherwise define locally
+try:
+    from src.models.constant import (
+        IGNORE_INDEX,
+        IMAGE_TOKEN_INDEX,
+        DEFAULT_IMAGE_TOKEN,
+        DEFAULT_IMAGE_PATCH_TOKEN,
+        DEFAULT_IM_START_TOKEN,
+        DEFAULT_IM_END_TOKEN,
+    )
+except ImportError:
+    # 필요한 상수들을 직접 정의 (import 문제 해결)
+    IGNORE_INDEX = -100
+    IMAGE_TOKEN_INDEX = -200
+    DEFAULT_IMAGE_TOKEN = "<image>"
+    DEFAULT_IMAGE_PATCH_TOKEN = "<imgpad>"
+    DEFAULT_IM_START_TOKEN = "<im_start>"
+    DEFAULT_IM_END_TOKEN = "<im_end>"
 
 class CaptioningVLM(CustomVLMModel):
     """

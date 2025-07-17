@@ -1,2 +1,3 @@
 from transformers import Blip2Processor, Blip2ForConditionalGeneration
 from transformers import Dinov2Model, SiglipModel
+from transformers import AutoModel

@@ -1,5 +1,6 @@
 import torch
 from src.models.config import VisionLanguageConfig
+from transformers import AutoTokenizer
 import os
 
 # 상수 직접 정의
@@ -26,14 +27,15 @@ def test_captioning_vlm():
     
     # 2. 모델 초기화
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "mps" if torch.backends.mps.is_available() else device
     print(f"디바이스: {device} 사용")
     
-    model = CaptioningVLM(cfg)
+    model = CaptioningVLM(cfg, tokenizer=AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B"))
     model = model.to(device)
     model.eval()  # 평가 모드로 설정
     
     # 3. 더미 입력 데이터 생성
-    dummy_frames = torch.randn(4, 3, 224, 224, device=device, dtype=torch.float32)
+    dummy_frames = torch.randn(6, 3, 224, 224, device=device, dtype=torch.float32)
     
     # 6. 내부 캡셔닝 과정 먼저 테스트 (다른 테스트 오류 때문에)
     print("\n[캡셔닝 과정 테스트]")

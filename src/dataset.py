@@ -97,96 +97,67 @@ class VLMDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, index) -> Dict[str, Union[torch.Tensor, Dict]]:
+    def __getitem__(self, index):
+        # ---------- 1) 비디오 로딩 ----------
         video_path = Path(self.data_path) / self.data[index]["video"]
-        spare_frames, frame_time, video_time = self.get_video_samples(video_path)
-    
-        if self.img_processor is None:
-            raise ValueError("`img_processor` must be provided.")
-        pixel_values = self.img_processor(
-            images=list(spare_frames), return_tensors="pt"
-        )["pixel_values"]
-    
+        frames, frame_time, video_time = self.get_video_samples(video_path)
+
+        # 이미지 전처리
+        pixel_values = self.img_processor(images=list(frames),
+                                          return_tensors="pt")["pixel_values"]  # (T, C, H, W)
+
+        # ---------- 2) 메시지 구성 ----------
         conversations = self.data[index]["conversations"]
-        system_instruction = (
-            "You are a helpful assistant."
-            f" Video length: {video_time:.2f}s. "
-            f"Selected frame timestamps: {frame_time}."
-        )
-        messages = [{"role": "system", "content": system_instruction}]
-        for convo in conversations:
-            role = "user" if convo["from"] == "human" else "assistant"
-            messages.append({"role": role, "content": convo["value"]})
-    
-        if self.tokenizer is None:
-            raise ValueError("`tokenizer` must be provided.")
-        
-        # 1. 먼저 텍스트 형태의 템플릿 생성
-        chat_text = self.tokenizer.apply_chat_template(
+
+        # (1) system 프롬프트
+        system_msg = ( "You are a helpful assistant. "
+                       f"Video length: {video_time:.2f}s. "
+                       f"Selected frame timestamps: {frame_time}." )
+
+        messages = [{"role": "system", "content": system_msg}]
+
+        # (2) user / assistant 턴
+        first_user_inserted = False
+        for c in conversations:
+            role = "user" if c["from"] == "human" else "assistant"
+            content = c["value"]
+
+            # 첫 user 턴에 비디오 플레이스홀더 삽입
+            if role == "user" and not first_user_inserted:
+                content = f"{self.image_placeholder}\n{content}"
+                first_user_inserted = True
+
+            messages.append({"role": role, "content": content})
+
+        # ---------- 3) 토크나이즈 + 템플릿 ----------
+        templated = self.tokenizer.apply_chat_template(
             messages,
-            tokenize=False,
-            return_tensors=None,
-            enable_thinking=False,
+            add_generation_prompt=True,     # 마지막에 <|im_start|>assistant 삽입
+            return_tensors="pt"             # input_ids, attention_mask 직접 반환
         )
-        
-        # 2. 어시스턴트 응답 시작 위치 찾기
-        assistant_token = "<|im_start|>assistant"
-        assistant_pos = chat_text.rfind(assistant_token)
-        
-        if assistant_pos == -1:
-            # 어시스턴트 토큰을 찾을 수 없는 경우 (매우 드문 경우)
-            print(f"Warning: assistant token not found in sample {index}")
-            # 전체 시퀀스에 대해 토큰화 수행
-            tokenized = self.tokenizer(chat_text, return_tensors="pt")
-            input_ids = tokenized["input_ids"].squeeze(0)
-            attention_mask = tokenized["attention_mask"].squeeze(0)
-            # 이 경우 라벨은 모두 -100으로 설정
-            labels = torch.full_like(input_ids, -100)
-        else:
-            # 전체 시퀀스 토큰화
-            tokenized = self.tokenizer(chat_text, return_tensors="pt")
-            input_ids = tokenized["input_ids"].squeeze(0)
-            attention_mask = tokenized["attention_mask"].squeeze(0)
-            
-            # 어시스턴트 응답 부분만 토큰화
-            assistant_text = chat_text[assistant_pos:]
-            assistant_tokenized = self.tokenizer(assistant_text, return_tensors="pt")
-            assistant_ids = assistant_tokenized["input_ids"].squeeze(0)
-            
-            # 어시스턴트 응답 시작 위치 찾기 (토큰 ID 기준)
-            # 첫 몇 개 토큰을 확인하여 매칭
-            pattern_length = min(5, len(assistant_ids))  # 첫 5개 토큰 또는 더 적은 수
-            pattern = assistant_ids[:pattern_length]
-            
-            # 패턴 매칭으로 시작 위치 찾기
-            start_idx = -1
-            for i in range(len(input_ids) - pattern_length + 1):
-                if torch.all(input_ids[i:i+pattern_length] == pattern):
-                    start_idx = i
-                    break
-            
-            if start_idx == -1:
-                print(f"Warning: Could not find assistant response in sample {index}")
-                labels = torch.full_like(input_ids, -100)
-            else:
-                # 라벨 생성: 어시스턴트 응답 시작 위치부터 실제 토큰 ID, 나머지는 -100
-                labels = torch.full_like(input_ids, -100)
-                labels[start_idx:] = input_ids[start_idx:]
-        
-        # 디버깅 (첫 번째 샘플에 대해서만)
-        if index == 0:
-            print("Input sequence:")
-            print(self.tokenizer.decode(input_ids))
-            print("\nLabels (non-masked parts only):")
-            non_masked = labels[labels != -100]
-            print(self.tokenizer.decode(non_masked))
-            print(f"\nLabels shape: {labels.shape}, Non-masked count: {(labels != -100).sum().item()}")
-    
+        input_ids       = templated["input_ids"].squeeze(0)         # (L,)
+        attention_mask  = templated["attention_mask"].squeeze(0)
+
+        # ---------- 4) labels 마스킹 ----------
+        # Qwen-chat: <|im_start|>assistant 토큰 시퀀스 탐색
+        assistant_start_ids = self.tokenizer.convert_tokens_to_ids(
+            ["<|im_start|>", "assistant"]
+        )
+        # 두 토큰이 연속으로 나타나는 마지막 인덱스(=generation prefix 끝)
+        hits = (input_ids[:-1] == assistant_start_ids[0]) & \
+               (input_ids[1:]  == assistant_start_ids[1])
+        if not hits.any():
+            raise RuntimeError(f"[index {index}] assistant 시작 토큰을 찾지 못했습니다.")
+        start_idx = torch.nonzero(hits, as_tuple=True)[0][-1].item() + 2  # 내용 시작 위치
+
+        labels = torch.full_like(input_ids, fill_value=-100)
+        labels[start_idx:] = input_ids[start_idx:]  # 어시스턴트 응답만 학습
+
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "labels": labels,
-            "pixel_values": pixel_values,
+            "pixel_values": pixel_values,          # (T, C, H, W)
             "video_path": str(video_path),
         }
 

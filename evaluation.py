@@ -81,7 +81,12 @@ def import_src_modules():
     from src.models.config import VisionLanguageConfig
     from src.models.build import CustomVLMModel
     
-    return VisionLanguageConfig, CustomVLMModel
+    # CaptioningVLM도 import 시도
+    try:
+        from src.models.captionvlm import CaptioningVLM
+        return VisionLanguageConfig, CustomVLMModel, CaptioningVLM
+    except ImportError:
+        return VisionLanguageConfig, CustomVLMModel, None
 
 def load_lora_checkpoint(model_path):
     """
@@ -90,7 +95,7 @@ def load_lora_checkpoint(model_path):
     print(f"LoRA 체크포인트 로딩 중: {model_path}")
     
     # src 모듈 import
-    VisionLanguageConfig, CustomVLMModel = import_src_modules()
+    VisionLanguageConfig, CustomVLMModel, CaptioningVLM = import_src_modules()
     
     try:
         # 1. adapter_config.json 파일 로드
@@ -161,12 +166,29 @@ def load_lora_checkpoint(model_path):
         
         # 기본 모델 생성
         print("기본 모델 생성 중...")
-        base_model = CustomVLMModel(
-            config=config, 
-            tokenizer=tokenizer,
-            vision_dtype=torch.float16, 
-            llm_dtype=torch.float16
-        )
+        if CaptioningVLM is not None:
+            try:
+                base_model = CaptioningVLM(
+                    config=config, 
+                    tokenizer=tokenizer
+                )
+                print("CaptioningVLM 모델 생성됨")
+            except Exception as e:
+                print(f"CaptioningVLM 생성 실패 ({e}), CustomVLMModel 사용")
+                base_model = CustomVLMModel(
+                    config=config, 
+                    tokenizer=tokenizer,
+                    vision_dtype=torch.float16, 
+                    llm_dtype=torch.float16
+                )
+        else:
+            print("CaptioningVLM을 import할 수 없어 CustomVLMModel 사용")
+            base_model = CustomVLMModel(
+                config=config, 
+                tokenizer=tokenizer,
+                vision_dtype=torch.float16, 
+                llm_dtype=torch.float16
+            )
         
         # 5. LoRA 어댑터 로드
         print("LoRA 어댑터 로드 중...")
