@@ -1,8 +1,8 @@
 # 모델 설정
 model:
     name: "test"
-    vision_model_name: "google/siglip2-base-patch16-256"
-    llm_model_name: "Qwen/Qwen3-8B-Base"
+    vision_model_name: "google/siglip-base-patch16-224"
+    llm_model_name: "Qwen/Qwen3-0.6B"
     projector_type: "mlp2x_gelu"
     use_resampler: true
     mm_spatial_pool_mode: "average"
